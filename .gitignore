@@ -1,0 +1,23 @@
+# Build directory
+build/
+
+# IDE files
+.vscode/
+*.code-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ESP-IDF specific
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# Dependencies
+dependencies.lock
