@@ -1,4 +1,3 @@
-idf_component_register(SRCS "main.c" "communication.c"
+idf_component_register(SRCS "main.c" "lm35.c"
                     INCLUDE_DIRS "."
-                    EMBED_FILES "certificates/server_cert.pem"
-                    REQUIRES mqtt esp_wifi esp_netif esp_event nvs_flash esp-tls mbedtls)
+                    REQUIRES nvs_flash driver esp_adc)
