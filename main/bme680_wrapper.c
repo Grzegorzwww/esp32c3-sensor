@@ -66,9 +66,9 @@ esp_err_t bme680_init(void)
     ESP_LOGI(TAG, "🔧 IIR Filter size: 3");
 
     // Configure heater profile for gas measurements
-    // Temperature: 320°C, Duration: 150ms
+    // Temperature: 320°C, Duration: 250ms (dłużej dla lepszego rozgrzania)
     ESP_LOGI(TAG, "🔄 Setting heater profile...");
-    if (!bme680_set_heater_profile(sensor, 0, 320, 150)) {
+    if (!bme680_set_heater_profile(sensor, 0, 320, 250)) {
         ESP_LOGW(TAG, "⚠️ Failed to set heater profile - skipping gas measurements");
     } else {
         // Use heater profile 0
@@ -76,7 +76,7 @@ esp_err_t bme680_init(void)
         if (!bme680_use_heater_profile(sensor, 0)) {
             ESP_LOGW(TAG, "⚠️ Failed to use heater profile - skipping gas measurements");
         } else {
-            ESP_LOGI(TAG, "🔥 Heater profile: 320°C, 150ms");
+            ESP_LOGI(TAG, "🔥 Heater profile: 320°C, 250ms (extended for better gas reading)");
         }
     }
 
@@ -105,13 +105,14 @@ esp_err_t bme680_read_data(bme680_data_t *data)
     uint32_t duration = bme680_get_measurement_duration(sensor);
     ESP_LOGD(TAG, "⏱️ Measurement duration: %lu ms", duration);
 
-    // Wait for measurement to complete
-    vTaskDelay(pdMS_TO_TICKS(duration + 10)); // +10ms safety margin
+    // Wait for measurement to complete - dodatkowy czas dla gazu
+    ESP_LOGI(TAG, "⏳ Waiting for measurement completion (gas needs time to stabilize)...");
+    vTaskDelay(pdMS_TO_TICKS(duration + 50)); // +50ms dla gazu
 
     // Check if measurement is still running
     if (bme680_is_measuring(sensor)) {
-        ESP_LOGW(TAG, "⚠️ Sensor still measuring, waiting longer...");
-        vTaskDelay(pdMS_TO_TICKS(50));
+        ESP_LOGW(TAG, "⚠️ Sensor still measuring, waiting longer for gas stabilization...");
+        vTaskDelay(pdMS_TO_TICKS(200)); // Więcej czasu dla gazu
         if (bme680_is_measuring(sensor)) {
             ESP_LOGE(TAG, "❌ Measurement timeout");
             data->valid = false;
@@ -133,9 +134,20 @@ esp_err_t bme680_read_data(bme680_data_t *data)
     data->humidity = results.humidity;
     data->gas_resistance = results.gas_resistance;
 
-    // Check gas measurement validity
-    data->gas_valid = (data->gas_resistance > 0);
+    // Check gas measurement validity - bardziej restrykcyjne sprawdzenie
+    data->gas_valid = (data->gas_resistance > 100);  // Minimum 100 Ohm dla valid
     data->valid = true;
+
+    // Debug gas sensor status
+    ESP_LOGI(TAG, "🔍 Gas sensor debug:");
+    ESP_LOGI(TAG, "   Raw gas resistance: %.0f Ohms", data->gas_resistance);
+    ESP_LOGI(TAG, "   Gas reading valid: %s", data->gas_valid ? "YES" : "NO");
+    if (!data->gas_valid) {
+        ESP_LOGW(TAG, "   ⚠️ Gas reading invalid - possible causes:");
+        ESP_LOGW(TAG, "     1. Heater still warming up (needs 2-3 measurements)");
+        ESP_LOGW(TAG, "     2. Poor air circulation");
+        ESP_LOGW(TAG, "     3. Sensor needs more time after deep sleep");
+    }
 
     ESP_LOGD(TAG, "📊 Measurement results:");
     ESP_LOGD(TAG, "   Temperature: %.2f °C", data->temperature);

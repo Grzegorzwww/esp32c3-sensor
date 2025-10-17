@@ -3,7 +3,7 @@
 # =================================================================
 # XIAO ESP32-C3 Flash & Monitor Script
 # Autor: GitHub Copilot
-# Przeznaczenie: Wgrywanie kodu na ESP32-C3 w deep sleep i monitor
+# Przeznaczenie: Wgrywanie kodu na ESP32-C3 z deep sleep (5 min cykl)
 # =================================================================
 
 # Kolory dla lepszej czytelności
@@ -73,9 +73,9 @@ flash_esp32() {
     echo -e "   3. Podłącz ESP32-C3 z powrotem"
     echo -e "   4. Skrypt automatycznie wykryje i wgra kod"
     echo ""
-    echo -e "${CYAN}⏰ Czekam maksymalnie 60 sekund...${NC}"
+    echo -e "${CYAN}⏰ Czekam maksymalnie 10 minut (600 sekund)...${NC}"
     
-    for i in {1..60}; do
+    for i in {1..600}; do
         if [ -e "$PORT" ]; then
             echo -e "${GREEN}✅ ESP32-C3 wykryty na $PORT! Wgrywam natychmiast...${NC}"
             
@@ -101,18 +101,19 @@ flash_esp32() {
             fi
         fi
         
-        printf "\r${YELLOW}⏳ Czekam... (%d/60s)${NC}" "$i"
+        printf "\r${YELLOW}⏳ Czekam... (%d/600s)${NC}" "$i"
         sleep 1
     done
     
-    echo -e "\n${RED}❌ Timeout: ESP32-C3 nie został wykryty w ciągu 60 sekund${NC}"
+    echo -e "\n${RED}❌ Timeout: ESP32-C3 nie został wykryty w ciągu 10 minut${NC}"
     return 1
 }
 
 # Funkcja monitora szeregowego
 monitor_esp32() {
     echo -e "${BLUE}📺 Uruchamiam monitor szeregowy...${NC}"
-    echo -e "${YELLOW}💡 ESP32-C3 budzi się co 30 sekund${NC}"
+    echo -e "${YELLOW}💡 ESP32-C3 budzi się co 5 minut (cykl deep sleep)${NC}"
+    echo -e "${YELLOW}   Okno debugowania: 10 sekund po wysłaniu danych${NC}"
     echo -e "${YELLOW}   Naciśnij Ctrl+C aby zakończyć monitor${NC}"
     echo ""
     
@@ -120,15 +121,16 @@ monitor_esp32() {
         if [ -e "$PORT" ]; then
             echo -e "${GREEN}🟢 $(date '+%H:%M:%S') - ESP32-C3 OBUDZONY!${NC}"
             
-            # Czytaj port szeregowy przez maksymalnie 25 sekund
-            timeout 25s cat "$PORT" 2>/dev/null || true
+            # Czytaj port szeregowy przez maksymalnie 2 minuty (rozgrzewanie + pomiar + debug)
+            timeout 120s cat "$PORT" 2>/dev/null || true
             
-            echo -e "${PURPLE}💤 $(date '+%H:%M:%S') - ESP32-C3 poszedł spać...${NC}"
-            echo -e "${CYAN}----------------------------------------${NC}"
+            echo -e "${PURPLE}💤 $(date '+%H:%M:%S') - ESP32-C3 wszedł w deep sleep (5 min)...${NC}"
+            echo -e "${CYAN}⏰ Następne wybudzenie: $(date -d '+5 minutes' '+%H:%M:%S')${NC}"
+            echo -e "${CYAN}--------------------------------------------------------${NC}"
         else
-            printf "\r${YELLOW}😴 $(date '+%H:%M:%S') - ESP32-C3 śpi...${NC}"
+            printf "\r${YELLOW}😴 $(date '+%H:%M:%S') - ESP32-C3 śpi (deep sleep)...${NC}"
         fi
-        sleep 2
+        sleep 10
     done
 }
 
