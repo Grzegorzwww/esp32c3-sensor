@@ -37,6 +37,12 @@ bool communication_publish_data(const char* topic, const char* data);
 bool communication_is_mqtt_connected(void);
 
 /**
+ * @brief Resetuje flagę wysyłania informacji o połączeniu
+ * Używaj gdy chcesz ponownie wysłać info o połączeniu
+ */
+void communication_reset_connection_info_flag(void);
+
+/**
  * @brief Czyści zasoby komunikacji
  */
 void communication_cleanup(void);

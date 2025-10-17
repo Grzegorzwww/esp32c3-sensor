@@ -1,4 +1,5 @@
 #include "communication.h"
+#include "config.h"  // Konfiguracja użytkownika
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -8,22 +9,39 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 
-// Konfiguracja WiFi
-#define WIFI_SSID "FunBox2-9877"
-#define WIFI_PASS "22446688"
-#define WIFI_TIMEOUT_MS 10000
+#ifdef PAULINA
+    // 💝 Konfiguracja Pauliny
+    // #define WIFI_SSID "Dom"
+    // #define WIFI_PASS "paula1234"
+    #define WIFI_SSID "FunBox2-9877"
+    #define WIFI_PASS "22446688"
+    #define MQTT_BROKER_URI "mqtts://a51fd01c7c0b4e2b881c011bfbc0d781.s2.eu.hivemq.cloud:8883"
+    #define MQTT_USERNAME "paulina"
+    #define MQTT_PASSWORD "Metypret69"
+    #define MQTT_CLIENT_ID "esp32c3_sensor_paulina"
+#else
+    // 🏠 Konfiguracja domyślna (Twoja)
+    #define WIFI_SSID "FunBox2-9877"
+    #define WIFI_PASS "22446688"
+    #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
+    #define MQTT_USERNAME "polnocna27"
+    #define MQTT_PASSWORD "Bobik111"
+    #define MQTT_CLIENT_ID "esp32c3_sensor"
+#endif
 
-// Konfiguracja MQTT
-#define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
+// Wspólne ustawienia
+#define WIFI_TIMEOUT_MS 10000
 #define MQTT_PORT 8883
-#define MQTT_CLIENT_ID "esp32c3_sensor"
-#define MQTT_USERNAME "polnocna27"
-#define MQTT_PASSWORD "Bobik111"
 #define MQTT_TOPIC_STATUS "esp32c3/status"
 #define MQTT_TOPIC_DATA "esp32c3/sensor_data"
+#define MQTT_TOPIC_WIFI_QUALITY "esp32c3/wifi_quality"
+#define MQTT_TOPIC_BOOT_COUNT "esp32c3/boot_count"
+#define MQTT_TOPIC_BATTERY_VOLTAGE "esp32c3/battery_voltage"
+#define MQTT_TOPIC_BATTERY_PERCENT "esp32c3/battery_percent"
 
 // Zmienne globalne modułu
 static const char *TAG = "COMMUNICATION";
@@ -31,9 +49,81 @@ static EventGroupHandle_t s_wifi_event_group;
 static bool module_initialized = false;
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static bool mqtt_connected = false;
+static int wifi_rssi = -100;  // Siła sygnału WiFi
+static bool connection_info_sent = false;  // Flaga czy wysłano już info o połączeniu
 
 #define WIFI_CONNECTED_BIT BIT0
 #define MQTT_CONNECTED_BIT BIT1
+
+// Funkcja do przeliczania RSSI na jakość w procentach
+static int rssi_to_quality_percent(int rssi)
+{
+    // RSSI w dBm -> jakość w %
+    // -30 dBm (doskonała) = 100%
+    // -50 dBm (bardzo dobra) = 80%
+    // -70 dBm (dobra) = 60%
+    // -80 dBm (średnia) = 40%
+    // -90 dBm (słaba) = 20%
+    // -100 dBm (bardzo słaba) = 0%
+    
+    if (rssi >= -30) return 100;
+    if (rssi >= -50) return 80 + (rssi + 50) * 20 / 20;  // 80-100%
+    if (rssi >= -70) return 60 + (rssi + 70) * 20 / 20;  // 60-80%
+    if (rssi >= -80) return 40 + (rssi + 80) * 20 / 10;  // 40-60%
+    if (rssi >= -90) return 20 + (rssi + 90) * 20 / 10;  // 20-40%
+    if (rssi >= -100) return (rssi + 100) * 20 / 10;     // 0-20%
+    return 0;
+}
+
+// Funkcja do wysyłania informacji o połączeniu (jednorazowo po połączeniu)
+static void send_connection_info(void)
+{
+    if (connection_info_sent || !mqtt_connected) {
+        return;
+    }
+    
+    // Pobierz aktualną siłę sygnału WiFi
+    wifi_ap_record_t ap_info;
+    esp_err_t ret = esp_wifi_sta_get_ap_info(&ap_info);
+    if (ret == ESP_OK) {
+        wifi_rssi = ap_info.rssi;
+    }
+    
+    // Przelicz RSSI na jakość w procentach
+    int quality_percent = rssi_to_quality_percent(wifi_rssi);
+    
+    // Pobierz numer uruchomienia z NVS
+    nvs_handle_t nvs_handle;
+    int32_t boot_count = 0;
+    
+    ret = nvs_open("storage", NVS_READWRITE, &nvs_handle);
+    if (ret == ESP_OK) {
+        ret = nvs_get_i32(nvs_handle, "boot_count", &boot_count);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            boot_count = 0;  // Pierwsze uruchomienie
+        }
+        boot_count++;
+        nvs_set_i32(nvs_handle, "boot_count", boot_count);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    
+    // Wysłanie informacji o jakości WiFi
+    char quality_str[16];
+    snprintf(quality_str, sizeof(quality_str), "%d", quality_percent);
+    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_WIFI_QUALITY, quality_str, 0, 1, 0);
+    
+    // Wysłanie numeru uruchomienia
+    char boot_str[16];
+    snprintf(boot_str, sizeof(boot_str), "%ld", boot_count);
+    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 0);
+    
+    ESP_LOGI(TAG, "📊 Connection info sent:");
+    ESP_LOGI(TAG, "   📶 WiFi Quality: %d%% (RSSI: %d dBm)", quality_percent, wifi_rssi);
+    ESP_LOGI(TAG, "   🔄 Boot Count: %ld", boot_count);
+    
+    connection_info_sent = true;
+}
 
 // Handler zdarzeń WiFi z szczegółowym debugowaniem
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
@@ -74,6 +164,9 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         // Publikuj status połączenia
         esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 0);
         ESP_LOGI(TAG, "📢 Published status: connected");
+        
+        // Wyślij informacje o połączeniu (jednorazowo)
+        send_connection_info();
         break;
         
     case MQTT_EVENT_DISCONNECTED:
@@ -339,6 +432,17 @@ esp_err_t communication_init(void)
     }
 
     ESP_LOGI(TAG, "🔧 Initializing communication module");
+
+    // Wyświetl aktywną konfigurację
+#ifdef PAULINA
+    ESP_LOGI(TAG, "💝 Konfiguracja: PAULINA");
+    ESP_LOGI(TAG, "📶 WiFi: %s", WIFI_SSID);
+    ESP_LOGI(TAG, "🔗 MQTT: paulina@hivemq.cloud");
+#else
+    ESP_LOGI(TAG, "🏠 Konfiguracja: DOMYŚLNA");
+    ESP_LOGI(TAG, "📶 WiFi: %s", WIFI_SSID);
+    ESP_LOGI(TAG, "🔗 MQTT: polnocna27@hivemq.cloud");
+#endif
     
     // Inicjalizacja NVS (wymagane dla WiFi)
     esp_err_t ret = nvs_flash_init();
@@ -410,6 +514,11 @@ bool communication_publish_data(const char* topic, const char* data)
 bool communication_is_mqtt_connected(void)
 {
     return mqtt_connected;
+}
+
+void communication_reset_connection_info_flag(void)
+{
+    connection_info_sent = false;
 }
 
 void communication_cleanup(void)
