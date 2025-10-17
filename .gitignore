@@ -21,3 +21,4 @@ managed_components/
 
 # Dependencies
 dependencies.lock
+temp_bme680_ref/
