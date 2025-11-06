@@ -73,4 +73,6 @@ void lm35_get_default_config(lm35_config_t *config);
  */
 esp_err_t lm35_set_calibration_offset(float offset_celsius);
 
+void sensor_start();
+
 #endif // LM35_H

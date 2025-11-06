@@ -17,6 +17,52 @@ static bool initialized = false;
 static lm35_config_t current_config;
 static float calibration_offset = 0.0f;
 
+
+
+void sensor_start()
+{
+
+    
+    // Konfiguracja LM35 - użyj domyślnej konfiguracji
+    lm35_config_t config_D2 = {
+        .adc_unit = ADC_UNIT_1,
+        .adc_channel = ADC_CHANNEL_2,    // GPIO2
+        .attenuation = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+        .voltage_reference_mv = 3300.0f
+    };
+    
+    // Inicjalizacja czujnika LM35
+    esp_err_t ret = lm35_init(&config_D2);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LM35 INIT ERROR - Check GPIO2 connection");
+        return;
+    }
+
+
+    // Konfiguracja LM35 - użyj domyślnej konfiguracji
+    lm35_config_t config_D1 = {
+        .adc_unit = ADC_UNIT_1,
+        .adc_channel = ADC_CHANNEL_1,    // GPIO1
+        .attenuation = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+        .voltage_reference_mv = 3300.0f
+    };
+    
+        // Inicjalizacja czujnika LM35
+    ret = lm35_init(&config_D1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LM35 INIT ERROR - Check GPIO1 connection");
+        return;
+    }
+
+    
+    ESP_LOGI(TAG, "LM35 Ready - Reading every 5s...");
+
+
+    
+
+}
 // Funkcje pomocnicze
 static esp_err_t lm35_adc_calibration_init(void)
 {
@@ -80,10 +126,10 @@ static void lm35_adc_calibration_deinit(void)
 
 esp_err_t lm35_init(const lm35_config_t *config)
 {
-    if (initialized) {
-        ESP_LOGW(TAG, "LM35 already initialized");
-        return ESP_OK;
-    }
+    // if (initialized) {
+    //     ESP_LOGW(TAG, "LM35 already initialized");
+    //     return ESP_OK;
+    // }
 
     ESP_LOGI(TAG, "🌡️ Initializing LM35 temperature sensor...");
 
@@ -96,7 +142,7 @@ esp_err_t lm35_init(const lm35_config_t *config)
 
     ESP_LOGI(TAG, "📍 Configuration:");
     ESP_LOGI(TAG, "   ADC Unit: %d", current_config.adc_unit);
-    ESP_LOGI(TAG, "   ADC Channel: %d (GPIO2/D0)", current_config.adc_channel);
+    ESP_LOGI(TAG, "   ADC Channel: %d ", current_config.adc_channel);
     ESP_LOGI(TAG, "   Attenuation: %d", current_config.attenuation);
     ESP_LOGI(TAG, "   Bitwidth: %d", current_config.bitwidth);
     ESP_LOGI(TAG, "   Reference Voltage: %.1f mV", current_config.voltage_reference_mv);
@@ -159,7 +205,7 @@ esp_err_t lm35_deinit(void)
 
 esp_err_t lm35_read_temperature(lm35_data_t *data)
 {
-    if (!initialized || data == NULL) {
+    if (data == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
