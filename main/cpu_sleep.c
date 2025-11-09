@@ -45,18 +45,18 @@ void go_to_cpu_sleep()
     // Sprawdź czy pin jest zwarty PRZED snem
     if (lvl == 0) {
         // Pin zwarty - ustaw flagę i idź spać na 5 sekund (timer)
-        ESP_LOGW(TAG, "🚨 Pin zwarty przed snem - aktywuję tryb stuck (timer 5s)");
+        ESP_LOGW(TAG, "Pin zwarty przed snem - aktywuję tryb stuck (timer 5s)");
         set_input_stuck(true);
         
         // WYŁĄCZ GPIO wakeup (ważne!)
         esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
         
         // Włącz TYLKO timer
-        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(5 * 1000000ULL)); // 5 sekund
-        ESP_LOGI(TAG, "💤 Deep sleep (timer 5s) - GPIO wake WYŁĄCZONY");
+        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(10 * 1000000ULL)); // 5 sekund
+        ESP_LOGI(TAG, "Deep sleep (timer 5s) - GPIO wake WYŁĄCZONY");
     } else {
         // Pin rozwarty - normalny tryb GPIO wakeup
-        ESP_LOGI(TAG, "✅ Pin HIGH - normalny tryb GPIO wakeup");
+        ESP_LOGI(TAG, "Pin HIGH - normalny tryb GPIO wakeup");
         
         // WYŁĄCZ timer (jeśli był włączony)
         esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);

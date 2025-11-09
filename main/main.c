@@ -46,7 +46,7 @@ void app_main(void)
 
 
     //  vTaskDelay(pdMS_TO_TICKS(DELAY_AFTER_WAKEUP_MS));
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // vTaskDelay(pdMS_TO_TICKS(1000));
      
         // for (int i = 2; i > 0; i--) {
         //     ESP_LOGI(TAG, "   Deep sleep za %d sekund", i);
