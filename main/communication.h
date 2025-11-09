@@ -3,6 +3,10 @@
 
 #include <stdbool.h>
 #include "esp_err.h"
+#include "config.h"  // Konfiguracja użytkownika
+
+
+
 
 /**
  * @brief Inicjalizuje moduł komunikacji (WiFi)

@@ -1,5 +1,5 @@
 #include "communication.h"
-#include "config.h"  // Konfiguracja użytkownika
+
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,7 +13,9 @@
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 
-#ifdef PAULINA
+
+
+#ifdef defined(PAULINA)
     // 💝 Konfiguracja Pauliny
     #define WIFI_SSID "Dom"
     #define WIFI_PASS "paula1234"
@@ -23,7 +25,7 @@
     #define MQTT_USERNAME "paulina"
     #define MQTT_PASSWORD "Metypret69"
     #define MQTT_CLIENT_ID "esp32c3_sensor_paulina"
-#else
+#elif defined(BOBIK)
     // 🏠 Konfiguracja domyślna (Twoja)
     #define WIFI_SSID "FunBox2-9877"
     #define WIFI_PASS "22446688"
@@ -31,7 +33,17 @@
     #define MQTT_USERNAME "polnocna27"
     #define MQTT_PASSWORD "Bobik111"
     #define MQTT_CLIENT_ID "esp32c3_sensor"
-#endif
+#elif defined(WESOLA)
+    #define WIFI_SSID "TP-Link_7E81"
+    #define WIFI_PASS "39693617"
+    #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
+    #define MQTT_USERNAME "polnocna27"
+    #define MQTT_PASSWORD "Bobik111"
+    #define MQTT_CLIENT_ID "esp32c3_sensor_wesola"
+#else 
+    #error "Brak wybranej konfiguracji (zdefiniuj PAULINA/BOBIK/WESOLA)".
+    #endif
+
 
 // Wspólne ustawienia
 #define WIFI_TIMEOUT_MS 10000
@@ -113,10 +125,10 @@ static void send_connection_info(void)
     snprintf(quality_str, sizeof(quality_str), "%d", quality_percent);
     esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_WIFI_QUALITY, quality_str, 0, 1, 1); // retained = 1
     
-    // Wysłanie numeru uruchomienia
-    char boot_str[16];
-    snprintf(boot_str, sizeof(boot_str), "%ld", boot_count);
-    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 1); // retained = 1
+    // // Wysłanie numeru uruchomienia
+    // char boot_str[16];
+    // snprintf(boot_str, sizeof(boot_str), "%ld", boot_count);
+    // esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 1); // retained = 1
     
     ESP_LOGI(TAG, "📊 Connection info sent:");
     ESP_LOGI(TAG, "   📶 WiFi Quality: %d%% (RSSI: %d dBm)", quality_percent, wifi_rssi);
@@ -162,8 +174,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
         
         // Publikuj status połączenia
-        esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 1); // retained
-        ESP_LOGI(TAG, "📢 Published status: connected");
+        // esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 1); // retained
+        // ESP_LOGI(TAG, "📢 Published status: connected");
         
         // Wyślij informacje o połączeniu (jednorazowo)
         send_connection_info();
