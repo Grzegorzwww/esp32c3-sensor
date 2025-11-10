@@ -7,14 +7,23 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "nvs.h"
-
 // Konfiguracja licznika gazu
-#define GAS_GPIO_PIN GPIO_NUM_5 // GPIO dla kontraktonu
-#define GAS_IMPULSE_VOLUME 0.001f // m³ na impuls
-#define IMPULSES_PER_M3 1000 // Impulsów na 1 m³
-#define IMPULSES_PER_TENTH_M3 100 // Impulsów na 0.1 m³
+#define GAS_GPIO_PIN GPIO_NUM_5   // GPIO dla kontraktonu
+#define GAS_IMPULSE_VOLUME 0.001f // m na impuls
+#define IMPULSES_PER_M3 1000      // Impulsów na 1 m³
+#define IMPULSES_PER_TENTH_M3 100 // Impulsów na 0.1 m
 #define NVS_NAMESPACE "gas"
 #define NVS_KEY "total"
+
+#define DELAY_AFTER_WAKEUP_MS 2000  // Opóźnienie po wybudzeniu (ms)
+#define INPUT_PIN_STUCK_TIME_S 10
+
+
+// Konfiguracja licznika gazu
+#define GAS_GPIO_PIN GPIO_NUM_5 // GPIO5
+
+void go_to_cpu_sleep();
+bool check_input_is_active();
 
 void init_gaz_counter();
 bool check_wake_up_reason();

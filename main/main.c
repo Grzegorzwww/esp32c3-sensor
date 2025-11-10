@@ -10,7 +10,6 @@
 #include "battery_monitor.h"
 #include "nvs.h"
 #include "gaz_counter.h"
-#include "cpu_sleep.h"
 #include "config.h"  // Konfiguracja użytkownika
 
 // Tag dla logów
@@ -26,13 +25,11 @@ void app_main(void)
    
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    init_cpu_sleep();
-
     init_gaz_counter();
 
 
-    // ESP_LOGI(TAG, "WYBUDZONY !");
-    // vTaskDelay(pdMS_TO_TICKS(1000));
+    ESP_LOGI(TAG, "WYBUDZONY !");
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
 
     bool is_wakeup_by_gas = check_wake_up_reason();
@@ -45,8 +42,9 @@ void app_main(void)
     }
 
 
-    //  vTaskDelay(pdMS_TO_TICKS(DELAY_AFTER_WAKEUP_MS));
-    // vTaskDelay(pdMS_TO_TICKS(1000));
+
+     vTaskDelay(pdMS_TO_TICKS(DELAY_AFTER_WAKEUP_MS));
+    vTaskDelay(pdMS_TO_TICKS(1000));
      
         // for (int i = 2; i > 0; i--) {
         //     ESP_LOGI(TAG, "   Deep sleep za %d sekund", i);
