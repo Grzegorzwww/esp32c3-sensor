@@ -51,4 +51,9 @@ void communication_reset_connection_info_flag(void);
  */
 void communication_cleanup(void);
 
+
+bool sync_time_from_ntp(void);
+
+
+
 #endif // COMMUNICATION_H

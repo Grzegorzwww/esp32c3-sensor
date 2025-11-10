@@ -130,9 +130,9 @@ static void send_connection_info(void)
     // snprintf(boot_str, sizeof(boot_str), "%ld", boot_count);
     // esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 1); // retained = 1
     
-    ESP_LOGI(TAG, "📊 Connection info sent:");
-    ESP_LOGI(TAG, "   📶 WiFi Quality: %d%% (RSSI: %d dBm)", quality_percent, wifi_rssi);
-    ESP_LOGI(TAG, "   🔄 Boot Count: %ld", boot_count);
+    ESP_LOGI(TAG, "Connection info sent:");
+    ESP_LOGI(TAG, "WiFi Quality: %d%% (RSSI: %d dBm)", quality_percent, wifi_rssi);
+    ESP_LOGI(TAG, "Boot Count: %ld", boot_count);
     
     connection_info_sent = true;
 }
@@ -550,4 +550,27 @@ void communication_cleanup(void)
     }
 
     ESP_LOGI(TAG, "✅ Communication cleanup completed");
+}
+
+bool sync_time_from_ntp(void) {
+ 
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+
+    tzset();  // Aktywuj strefę czasową w systemie
+    
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);       // Tryb odpytywania (zapytaj serwer o czas)
+    
+    esp_sntp_setservername(0, "pool.ntp.org");     // Ustaw serwer czasu - "pool.ntp.org" to publiczny serwer NTP
+
+    esp_sntp_init();  // Uruchom klienta SNTP
+    
+    // KROK 3: Czekaj na synchronizację (maksymalnie 5 sekund)
+    for (int i = 0; i < 5 && 
+         esp_sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; 
+         i++) { 
+        vTaskDelay(1000 / portTICK_PERIOD_MS);  // Czekaj 1 sekundę
+    }
+
+    // KROK 4: Zwróć true jeśli udało się pobrać czas
+    return (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED);
 }

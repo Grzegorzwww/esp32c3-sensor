@@ -28,8 +28,8 @@ void app_main(void)
     init_gaz_counter();
 
 
-    ESP_LOGI(TAG, "WYBUDZONY !");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // ESP_LOGI(TAG, "WYBUDZONY !");
+    // vTaskDelay(pdMS_TO_TICKS(1000));
 
 
     bool is_wakeup_by_gas = check_wake_up_reason();
@@ -41,15 +41,9 @@ void app_main(void)
         establish_communication();
     }
 
-
-
-     vTaskDelay(pdMS_TO_TICKS(DELAY_AFTER_WAKEUP_MS));
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // vTaskDelay(pdMS_TO_TICKS(DELAY_AFTER_WAKEUP_MS));
+    // vTaskDelay(pdMS_TO_TICKS(1000));
      
-        // for (int i = 2; i > 0; i--) {
-        //     ESP_LOGI(TAG, "   Deep sleep za %d sekund", i);
-        //     vTaskDelay(pdMS_TO_TICKS(1000));
-        // }
 
     go_to_cpu_sleep();
 
@@ -78,5 +72,4 @@ void establish_communication(){
             }
             communication_cleanup();
         }
-
 }
