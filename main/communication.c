@@ -13,7 +13,9 @@
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 
-#ifdef PAULINA
+#define BOBIK
+
+#ifdef defined(PAULINA)
     // 💝 Konfiguracja Pauliny
     #define WIFI_SSID "Dom"
     #define WIFI_PASS "paula1234"
@@ -23,7 +25,7 @@
     #define MQTT_USERNAME "paulina"
     #define MQTT_PASSWORD "Metypret69"
     #define MQTT_CLIENT_ID "esp32c3_sensor_paulina"
-#else
+#elif defined(BOBIK)
     // 🏠 Konfiguracja domyślna (Twoja)
     #define WIFI_SSID "FunBox2-9877"
     #define WIFI_PASS "22446688"
@@ -31,7 +33,16 @@
     #define MQTT_USERNAME "polnocna27"
     #define MQTT_PASSWORD "Bobik111"
     #define MQTT_CLIENT_ID "esp32c3_sensor"
-#endif
+#elif defined(WESOLA)
+    #define WIFI_SSID "TP-Link_7E81"
+    #define WIFI_PASS "39693617"
+    #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
+    #define MQTT_USERNAME "polnocna27"
+    #define MQTT_PASSWORD "Bobik111"
+    #define MQTT_CLIENT_ID "esp32c3_sensor_wesola"
+#else 
+    #error "Brak wybranej konfiguracji (zdefiniuj PAULINA/BOBIK/WESOLA)".
+    #endif
 
 // Wspólne ustawienia
 #define WIFI_TIMEOUT_MS 10000

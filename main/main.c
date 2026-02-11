@@ -13,9 +13,9 @@
 static const char *TAG = "MAIN";
 
 // Konfiguracja deep sleep
-#define SLEEP_TIME_MINUTES 5
+#define SLEEP_TIME_MINUTES 2
 #define DEBUG_DELAY_SECONDS 10
-#define SLEEP_TIME_US (SLEEP_TIME_MINUTES * 60 * 1000000ULL)  // 5 minut w mikrosekundach
+#define SLEEP_TIME_US (SLEEP_TIME_MINUTES * 60 * 1000000ULL)  // 2 minuty w mikrosekundach
 
 // Funkcja do określenia jakości powietrza na podstawie oporu gazu
 static const char* get_air_quality_description(float gas_resistance, bool gas_valid)

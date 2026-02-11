@@ -1,6 +1,7 @@
 #ifndef BME680_WRAPPER_H
 #define BME680_WRAPPER_H
 
+#include <stdbool.h>
 #include "esp_err.h"
 #include "bme680.h"  // From the dedicated ESP-IDF library
 
