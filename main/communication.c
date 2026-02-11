@@ -17,10 +17,10 @@
 
 #ifdef defined(PAULINA)
     // 💝 Konfiguracja Pauliny
-    #define WIFI_SSID "Dom"
-    #define WIFI_PASS "paula1234"
-    // #define WIFI_SSID "FunBox2-9877"
-    // #define WIFI_PASS "22446688"
+    // #define WIFI_SSID "Dom"
+    // #define WIFI_PASS "paula1234"
+    #define WIFI_SSID "FunBox2-9877"
+    #define WIFI_PASS "22446688"
     #define MQTT_BROKER_URI "mqtts://a51fd01c7c0b4e2b881c011bfbc0d781.s2.eu.hivemq.cloud:8883"
     #define MQTT_USERNAME "paulina"
     #define MQTT_PASSWORD "Metypret69"
@@ -122,12 +122,12 @@ static void send_connection_info(void)
     // Wysłanie informacji o jakości WiFi
     char quality_str[16];
     snprintf(quality_str, sizeof(quality_str), "%d", quality_percent);
-    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_WIFI_QUALITY, quality_str, 0, 1, 1); // retained = 1
+    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_WIFI_QUALITY, quality_str, 0, 1, 0);
     
     // Wysłanie numeru uruchomienia
     char boot_str[16];
     snprintf(boot_str, sizeof(boot_str), "%ld", boot_count);
-    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 1); // retained = 1
+    esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC_BOOT_COUNT, boot_str, 0, 1, 0);
     
     ESP_LOGI(TAG, "📊 Connection info sent:");
     ESP_LOGI(TAG, "   📶 WiFi Quality: %d%% (RSSI: %d dBm)", quality_percent, wifi_rssi);
@@ -173,7 +173,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
         
         // Publikuj status połączenia
-        esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 1); // retained
+        esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 0);
         ESP_LOGI(TAG, "📢 Published status: connected");
         
         // Wyślij informacje o połączeniu (jednorazowo)
@@ -512,13 +512,13 @@ bool communication_publish_data(const char* topic, const char* data)
         return false;
     }
 
-    int msg_id = esp_mqtt_client_publish(mqtt_client, topic, data, 0, 1, 1); // retained = 1
+    int msg_id = esp_mqtt_client_publish(mqtt_client, topic, data, 0, 1, 0);
     if (msg_id == -1) {
         ESP_LOGE(TAG, "❌ Failed to publish MQTT message");
         return false;
     }
 
-    ESP_LOGI(TAG, "📤 Published RETAINED to '%s': %s (msg_id=%d)", topic, data, msg_id);
+    ESP_LOGI(TAG, "📤 Published to '%s': %s (msg_id=%d)", topic, data, msg_id);
     return true;
 }
 
