@@ -19,7 +19,7 @@ typedef struct {
 #define BATTERY_R1_OHMS         10000   // Górny rezystor (10kΩ)
 #define BATTERY_R2_OHMS         10000   // Dolny rezystor (10kΩ)
 #define BATTERY_DIVIDER_RATIO   2.0f    // Stosunek dzielnika (R1+R2)/R2
-#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_2  // GPIO2 (A0)
+#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_0  // GPIO0 (D0)
 #define BATTERY_ADC_ATTEN       ADC_ATTEN_DB_11 // 0-3.3V
 #define BATTERY_MIN_VOLTAGE     3.0f    // Minimalne napięcie (bateria rozładowana)
 #define BATTERY_MAX_VOLTAGE     4.2f    // Maksymalne napięcie (bateria naładowana)

@@ -8,6 +8,7 @@
 #include "communication.h"
 #include "bme680_wrapper.h"
 #include "battery_monitor.h"
+#include "lm35.h"
 
 // Tag dla logów
 static const char *TAG = "MAIN";
@@ -57,7 +58,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Wolna pamięć: %d bajtów", esp_get_free_heap_size());
     ESP_LOGI(TAG, "Wersja ESP-IDF: %s", esp_get_idf_version());
     
-    // Inicjalizacja czujnika BME680
+ 
+    //Inicjalizacja czujnika BME680
     ESP_LOGI(TAG, "Inicjalizacja czujnika BME680...");
     esp_err_t ret = bme680_init();
     if (ret != ESP_OK) {
@@ -65,7 +67,7 @@ void app_main(void)
         return;
     }
     
-    // Inicjalizacja monitora baterii
+    // Inicjalizacja monitora baterii (FIRST - creates ADC1 unit)
     ESP_LOGI(TAG, "Inicjalizacja monitora baterii...");
     ret = battery_monitor_init();
     if (ret != ESP_OK) {
@@ -73,6 +75,13 @@ void app_main(void)
         bme680_cleanup();
         return;
     }
+    
+    // // Inicjalizacja czujnika LM35 (SECOND - uses existing ADC1 unit, different channel)
+    // ESP_LOGI(TAG, "Inicjalizacja czujnika LM35...");
+    // ret = lm35_init(NULL);  // NULL = użyj domyślnej konfiguracji
+    // if (ret != ESP_OK) {
+    //     ESP_LOGW(TAG, "⚠️ Błąd inicjalizacji LM35: %s (kontynuowanie bez LM35)", esp_err_to_name(ret));
+    // }
     
     // Inicjalizacja modułu komunikacji
     ESP_LOGI(TAG, "Inicjalizacja modułu komunikacji...");
@@ -136,6 +145,21 @@ void app_main(void)
                          battery_percentage,
                          battery_low ? "[NISKI POZIOM!]" : "");
                 
+                // Odczyt LM35 (jeśli zainicjalizowany)
+                lm35_data_t lm35_data;
+                bool lm35_valid = false;
+                if (lm35_is_initialized()) {
+                    esp_err_t lm35_ret = lm35_read_temperature(&lm35_data);
+                    if (lm35_ret == ESP_OK && lm35_data.valid) {
+                        ESP_LOGI(TAG, "🌡️ LM35: %.2f°C (%.0fmV)", 
+                                 lm35_data.temperature_celsius, 
+                                 lm35_data.voltage_mv);
+                        lm35_valid = true;
+                    } else {
+                        ESP_LOGW(TAG, "⚠️ LM35 read failed");
+                    }
+                }
+                
                 // Wysyłanie do MQTT - oddzielne topiki dla każdego parametru
                 char temp_str[16], press_str[16], hum_str[16], gas_str[16], gas_valid_str[8];
                 char battery_voltage_str[16], battery_percentage_str[8];
@@ -161,6 +185,17 @@ void app_main(void)
                 bool bat_perc_ok = communication_publish_data("esp32c3/battery_percentage", battery_percentage_str);
                 if (battery_low) {
                     communication_publish_data("esp32c3/battery_alert", "NISKI_POZIOM");
+                }
+                
+                // Publikowanie danych LM35 (jeśli dostępne)
+                if (lm35_valid) {
+                    char lm35_temp_str[16];
+                    snprintf(lm35_temp_str, sizeof(lm35_temp_str), "%.2f", lm35_data.temperature_celsius);
+                    communication_publish_data("lm35/temperature", lm35_temp_str);
+                    
+                    char lm35_voltage_str[16];
+                    snprintf(lm35_voltage_str, sizeof(lm35_voltage_str), "%.0f", lm35_data.voltage_mv);
+                    communication_publish_data("lm35/voltage", lm35_voltage_str);
                 }
                 
                 // Dodatkowe informacje systemowe
@@ -204,6 +239,7 @@ void app_main(void)
     communication_cleanup();
     bme680_cleanup();
     battery_monitor_cleanup();
+    lm35_deinit();
     
     // Konfiguracja i wejście w deep sleep
     ESP_LOGI(TAG, "💤 Konfiguracja deep sleep na %d minut...", SLEEP_TIME_MINUTES);

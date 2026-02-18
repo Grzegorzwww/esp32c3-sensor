@@ -11,7 +11,8 @@
 //
 // 2️⃣ DLA PAULINY:
 //    Odkomentuj poniższą linię (usuń //)
-    #define PAULINA
+//    #define BOBIK 1
+#define WESOLA 1
 //
 // Po zmianie wykonaj: idf.py build flash
 //

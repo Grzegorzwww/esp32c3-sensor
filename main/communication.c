@@ -13,7 +13,6 @@
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 
-#define BOBIK
 
 #ifdef defined(PAULINA)
     // 💝 Konfiguracja Pauliny
@@ -27,7 +26,9 @@
     #define MQTT_CLIENT_ID "esp32c3_sensor_paulina"
 #elif defined(BOBIK)
     // 🏠 Konfiguracja domyślna (Twoja)
-    #define WIFI_SSID "FunBox2-9877"
+    #define WIFI_SSID "FunBox2-C259"  // POPRAWIONE z C256 na C259
+    // #define WIFI_SSID "iPhone"
+    // #define WIFI_PASS "bobik111"
     #define WIFI_PASS "22446688"
     #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
     #define MQTT_USERNAME "polnocna27"
@@ -277,8 +278,8 @@ static void scan_and_check_signal(void)
         .channel = 0,
         .show_hidden = false,
         .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time.active.min = 120,
-        .scan_time.active.max = 150,
+        .scan_time.active.min = 300,  // Zwiększone z 120 do 300ms
+        .scan_time.active.max = 500,  // Zwiększone z 150 do 500ms
     };
     
     ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, true));
@@ -353,11 +354,15 @@ static bool wifi_connect(void)
     wifi_config_t wifi_config = {
         .sta = {
             .threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK,
-            .scan_method = WIFI_FAST_SCAN,
+            .scan_method = WIFI_ALL_CHANNEL_SCAN,  // Skanuj wszystkie kanały, nie tylko szybkie
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,  // Połącz z najsilniejszym sygnałem
+            .channel = 0,  // Auto-detect kanału
         },
     };
     strncpy((char*)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid));
     strncpy((char*)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password));
+    
+    ESP_LOGI(TAG, "🔍 Scan method: ALL_CHANNEL (not FAST) to find hidden/weak networks");
     
     ESP_LOGI(TAG, "🔐 WiFi config: SSID='%s', Pass='%s' (len:%d)", 
              wifi_config.sta.ssid, wifi_config.sta.password, strlen(WIFI_PASS));
@@ -377,8 +382,59 @@ static bool wifi_connect(void)
     ESP_LOGI(TAG, "📶 Current TX power: %d (0.25dBm units) = %.1f dBm", 
              current_power, current_power * 0.25f);
     
-    // Sprawdzenie dostępnych sieci i siły sygnału
-    scan_and_check_signal();
+    // Opóźnienie aby moduł WiFi mógł się w pełni zainicjalizować
+    ESP_LOGI(TAG, "⏱️ Waiting 2 seconds for WiFi hardware to stabilize...");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    
+    // DEBUG: Wykonaj proste skanowanie aby zobaczyć CO WIDZI ESP32
+    ESP_LOGI(TAG, "🔍 DEBUG: Performing simple scan to see available networks...");
+    wifi_scan_config_t debug_scan = {
+        .ssid = NULL,  // Szukaj wszystkich sieci
+        .bssid = NULL,
+        .channel = 0,  // Wszystkie kanały
+        .show_hidden = true,  // Pokaż ukryte sieci
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 0,
+        .scan_time.active.max = 500,
+    };
+    
+    esp_err_t scan_ret = esp_wifi_scan_start(&debug_scan, true);
+    if (scan_ret == ESP_OK) {
+        uint16_t ap_count = 0;
+        esp_wifi_scan_get_ap_num(&ap_count);
+        ESP_LOGI(TAG, "� Found %d access points total", ap_count);
+        
+        if (ap_count > 0) {
+            wifi_ap_record_t *ap_list = malloc(sizeof(wifi_ap_record_t) * ap_count);
+            if (ap_list) {
+                esp_wifi_scan_get_ap_records(&ap_count, ap_list);
+                
+                bool found_target = false;
+                for (int i = 0; i < ap_count && i < 10; i++) {  // Pokaż max 10
+                    ESP_LOGI(TAG, "   [%d] SSID:'%s' Ch:%d RSSI:%d Auth:%d", 
+                             i, ap_list[i].ssid, ap_list[i].primary, 
+                             ap_list[i].rssi, ap_list[i].authmode);
+                    
+                    if (strcmp((char*)ap_list[i].ssid, WIFI_SSID) == 0) {
+                        found_target = true;
+                        ESP_LOGI(TAG, "🎯 TARGET '%s' FOUND on channel %d with RSSI %d!", 
+                                 WIFI_SSID, ap_list[i].primary, ap_list[i].rssi);
+                    }
+                }
+                
+                if (!found_target) {
+                    ESP_LOGE(TAG, "❌ Target network '%s' NOT FOUND in scan!", WIFI_SSID);
+                    ESP_LOGE(TAG, "   Check: 1) Router is 2.4GHz 2) SSID is correct 3) Router is ON");
+                }
+                
+                free(ap_list);
+            }
+        } else {
+            ESP_LOGE(TAG, "❌ NO NETWORKS FOUND AT ALL! Hardware issue or antenna problem?");
+        }
+    } else {
+        ESP_LOGE(TAG, "❌ Scan failed: %s", esp_err_to_name(scan_ret));
+    }
     
     ESP_LOGI(TAG, "🔌 Connecting to network...");
     ESP_ERROR_CHECK(esp_wifi_connect());

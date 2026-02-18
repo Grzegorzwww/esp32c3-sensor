@@ -97,7 +97,7 @@ esp_err_t battery_monitor_init(void)
     ESP_LOGI(TAG, "   R2 = %d Ω (lower resistor)", BATTERY_R2_OHMS);
     ESP_LOGI(TAG, "   Ratio = %.1f (measures up to %.1fV safely)", 
              BATTERY_DIVIDER_RATIO, 3.3f * BATTERY_DIVIDER_RATIO);
-    ESP_LOGI(TAG, "📍 ADC Pin: GPIO2 (A0)");
+    ESP_LOGI(TAG, "📍 ADC Pin: GPIO0 (D0)");
 
     // Konfiguracja ADC
     adc_oneshot_unit_init_cfg_t init_config1 = {
