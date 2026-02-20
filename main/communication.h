@@ -6,13 +6,16 @@
 #include "config.h"  // Konfiguracja użytkownika
 
 
+typedef bool (* parse_mqtt_data_callback_t)(const char* topic, const char* data);
 
 
+
+bool current_sensor_analyze_data(bool (*is_time)(void));
 /**
  * @brief Inicjalizuje moduł komunikacji (WiFi)
  * @return ESP_OK jeśli sukces
  */
-esp_err_t communication_init(void);
+esp_err_t communication_init(parse_mqtt_data_callback_t incoming_mqtt_data_callback);
 
 /**
  * @brief Łączy się z WiFi
@@ -25,6 +28,14 @@ bool communication_connect_wifi(void);
  * @return true jeśli połączenie udane
  */
 bool communication_connect_mqtt(void);
+
+/**
+ * @brief Włącza zaawansowany Power Management (DFS + Light Sleep)
+ * UWAGA: To jest opcjonalne - Modem Sleep jest już włączony automatycznie
+ * @param enable_light_sleep Czy włączyć automatyczny Light Sleep
+ * @return ESP_OK jeśli sukces
+ */
+esp_err_t communication_enable_advanced_power_save(bool enable_light_sleep);
 
 /**
  * @brief Publikuje dane przez MQTT

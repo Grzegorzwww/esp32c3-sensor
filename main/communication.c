@@ -12,10 +12,14 @@
 #include "nvs.h"
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_sntp.h"
+#include "esp_pm.h"
+#include "current_sensor.h"
+#include "config.h"  // Konfiguracja użytkownika
 
 
 
-#ifdef defined(PAULINA)
+#ifdef PAULINA
     // 💝 Konfiguracja Pauliny
     #define WIFI_SSID "Dom"
     #define WIFI_PASS "paula1234"
@@ -25,15 +29,15 @@
     #define MQTT_USERNAME "paulina"
     #define MQTT_PASSWORD "Metypret69"
     #define MQTT_CLIENT_ID "esp32c3_sensor_paulina"
-#elif defined(BOBIK)
+#elif BOBIK
     // 🏠 Konfiguracja domyślna (Twoja)
-    #define WIFI_SSID "FunBox2-9877"
+    #define WIFI_SSID "FunBox2-C259"
     #define WIFI_PASS "22446688"
     #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
     #define MQTT_USERNAME "polnocna27"
     #define MQTT_PASSWORD "Bobik111"
     #define MQTT_CLIENT_ID "esp32c3_sensor"
-#elif defined(WESOLA)
+#elif WESOLA
     #define WIFI_SSID "TP-Link_7E81"
     #define WIFI_PASS "39693617"
     #define MQTT_BROKER_URI "mqtts://3a740c0f200c45698faee4ba7744b88c.s2.eu.hivemq.cloud:8883"
@@ -67,16 +71,12 @@ static bool connection_info_sent = false;  // Flaga czy wysłano już info o po�
 #define WIFI_CONNECTED_BIT BIT0
 #define MQTT_CONNECTED_BIT BIT1
 
+
+static parse_mqtt_data_callback_t parse_mqtt_data_callback = NULL;
 // Funkcja do przeliczania RSSI na jakość w procentach
 static int rssi_to_quality_percent(int rssi)
 {
-    // RSSI w dBm -> jakość w %
-    // -30 dBm (doskonała) = 100%
-    // -50 dBm (bardzo dobra) = 80%
-    // -70 dBm (dobra) = 60%
-    // -80 dBm (średnia) = 40%
-    // -90 dBm (słaba) = 20%
-    // -100 dBm (bardzo słaba) = 0%
+
     
     if (rssi >= -30) return 100;
     if (rssi >= -50) return 80 + (rssi + 50) * 20 / 20;  // 80-100%
@@ -173,12 +173,40 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         mqtt_connected = true;
         xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
         
-        // Publikuj status połączenia
-        // esp_mqtt_client_publish(event->client, MQTT_TOPIC_STATUS, "ESP32-C3 connected", 0, 1, 1); // retained
-        // ESP_LOGI(TAG, "📢 Published status: connected");
-        
-        // Wyślij informacje o połączeniu (jednorazowo)
+
         send_connection_info();
+
+            // Subskrybuj się na topic do odbierania komend/konfiguracji
+        int msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CURRENT_SET_TOTAL, 1);
+        if (msg_id >= 0) {
+            ESP_LOGI(TAG, "📥 Subscribed to commands topic (msg_id=%d)", msg_id);
+        } else {
+            ESP_LOGW(TAG, "⚠️ Failed to subscribe to commands topic");
+        }
+
+        msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CURRENT_GET_TOTAL, 1);
+        if (msg_id >= 0) {
+            ESP_LOGI(TAG, "📥 Subscribed to commands topic (msg_id=%d)", msg_id);
+        } else {
+            ESP_LOGW(TAG, "⚠️ Failed to subscribe to commands topic");
+        }
+
+        msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CURRENT_GET_CURRENT, 1);
+        if (msg_id >= 0) {
+            ESP_LOGI(TAG, "📥 Subscribed to commands topic (msg_id=%d)", msg_id);
+        } else {
+            ESP_LOGW(TAG, "⚠️ Failed to subscribe to commands topic");
+        }
+
+        msg_id = esp_mqtt_client_subscribe(mqtt_client, MQTT_TOPIC_CURRENT_SET_PRICE_ONE_KWH, 1);
+        if (msg_id >= 0) {
+            ESP_LOGI(TAG, "📥 Subscribed to commands topic (msg_id=%d)", msg_id);
+        } else {
+            ESP_LOGW(TAG, "⚠️ Failed to subscribe to commands topic");
+        }
+
+
+
         break;
         
     case MQTT_EVENT_DISCONNECTED:
@@ -203,6 +231,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "📩 MQTT data received:");
         ESP_LOGI(TAG, "   Topic: %.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "   Data: %.*s", event->data_len, event->data);
+        
+        if(parse_mqtt_data_callback != NULL){
+            parse_mqtt_data_callback(event->topic, event->data);
+        }
         break;
         
     case MQTT_EVENT_ERROR:
@@ -384,9 +416,6 @@ static bool wifi_connect(void)
     ESP_LOGI(TAG, "🔌 Connecting to network...");
     ESP_ERROR_CHECK(esp_wifi_connect());
 
-    ESP_LOGI(TAG, "🔋 Setting WiFi power save mode (NONE like tutorial)");
-    esp_wifi_set_ps(WIFI_PS_NONE);
-
     ESP_LOGI(TAG, "⏳ Waiting for connection (timeout: %d ms)", WIFI_TIMEOUT_MS);
     int bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                                    pdFALSE, pdTRUE, WIFI_TIMEOUT_MS / portTICK_PERIOD_MS);
@@ -395,6 +424,17 @@ static bool wifi_connect(void)
     
     if (connected) {
         ESP_LOGI(TAG, "🎉 WiFi connection successful!");
+        
+        // 🔋 Włącz WiFi Modem Sleep dla oszczędzania energii
+        ESP_LOGI(TAG, "🔋 Enabling WiFi Modem Sleep (power save mode)");
+        esp_err_t ps_ret = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        if (ps_ret == ESP_OK) {
+            ESP_LOGI(TAG, "✅ WiFi Modem Sleep enabled");
+            ESP_LOGI(TAG, "   📉 Expected power: ~20-30 mA (instead of 70-100 mA)");
+            ESP_LOGI(TAG, "   📡 WiFi stays connected, radio sleeps between beacons");
+        } else {
+            ESP_LOGW(TAG, "⚠️ Failed to enable Modem Sleep: %s", esp_err_to_name(ps_ret));
+        }
     } else {
         ESP_LOGE(TAG, "❌ WiFi connection timeout after %d ms", WIFI_TIMEOUT_MS);
     }
@@ -436,8 +476,12 @@ static bool mqtt_connect(void)
 
 // === PUBLICZNE FUNKCJE === //
 
-esp_err_t communication_init(void)
+esp_err_t communication_init(parse_mqtt_data_callback_t incoming_mqtt_data_callback)
 {
+
+
+    parse_mqtt_data_callback = incoming_mqtt_data_callback;
+
     if (module_initialized) {
         ESP_LOGW(TAG, "⚠️ Communication module already initialized");
         return ESP_OK;
@@ -551,6 +595,61 @@ void communication_cleanup(void)
 
     ESP_LOGI(TAG, "✅ Communication cleanup completed");
 }
+
+// === POWER MANAGEMENT === //
+
+esp_err_t communication_enable_advanced_power_save(bool enable_light_sleep)
+{
+    ESP_LOGI(TAG, "🔋 Configuring Advanced Power Management");
+    ESP_LOGI(TAG, "   Light Sleep: %s", enable_light_sleep ? "ENABLED" : "DISABLED");
+    
+    // Konfiguracja Power Management
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = 160,  // Maksymalna częstotliwość CPU: 160 MHz
+        .min_freq_mhz = 40,   // Minimalna częstotliwość CPU: 40 MHz (XTAL)
+        .light_sleep_enable = enable_light_sleep  // Automatyczny Light Sleep
+    };
+    
+    esp_err_t ret = esp_pm_configure(&pm_config);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "✅ Power Management configured successfully");
+        ESP_LOGI(TAG, "   📊 CPU Frequency: %d MHz → %d MHz (dynamic)", 
+                 pm_config.min_freq_mhz, pm_config.max_freq_mhz);
+        
+        if (enable_light_sleep) {
+            ESP_LOGI(TAG, "   💤 Light Sleep: ENABLED");
+            ESP_LOGI(TAG, "      • CPU sleeps when idle");
+            ESP_LOGI(TAG, "      • Wakes on: WiFi beacon, UART, GPIO, Timer");
+            ESP_LOGI(TAG, "      • Expected power: 5-10 mA in sleep");
+            ESP_LOGI(TAG, "   ⚠️  NOTE: UART RX may need PM lock to prevent sleep!");
+        } else {
+            ESP_LOGI(TAG, "   ⚡ Dynamic Frequency Scaling: ENABLED");
+            ESP_LOGI(TAG, "      • CPU slows down when idle (160→40 MHz)");
+            ESP_LOGI(TAG, "      • Expected power: 15-25 mA average");
+        }
+        
+        ESP_LOGI(TAG, "   📉 Total power with WiFi Modem Sleep:");
+        ESP_LOGI(TAG, "      • WiFi active: ~20-30 mA");
+        ESP_LOGI(TAG, "      • With DFS: ~15-20 mA");
+        if (enable_light_sleep) {
+            ESP_LOGI(TAG, "      • With Light Sleep: ~5-10 mA");
+        }
+        
+    } else if (ret == ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGE(TAG, "❌ Power Management not supported!");
+        ESP_LOGE(TAG, "   Enable CONFIG_PM_ENABLE in menuconfig:");
+        ESP_LOGE(TAG, "   Component config → Power Management → [*] Enable PM");
+        return ret;
+    } else {
+        ESP_LOGE(TAG, "❌ Failed to configure PM: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    return ESP_OK;
+}
+
+// === NTP TIME SYNC === //
 
 bool sync_time_from_ntp(void) {
  
