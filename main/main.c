@@ -19,7 +19,7 @@
 
 static const char *TAG = "MAIN";
 
-esp_err_t establish_communication();
+
 
 void app_main(void)
 {
@@ -29,8 +29,10 @@ void app_main(void)
 
 
     if(establish_communication() == ESP_OK){
-        init_time();
         sync_time_from_ntp();
+        init_time();
+    }else{
+
     }
 
     communication_enable_advanced_power_save(false); 
@@ -45,42 +47,19 @@ void app_main(void)
 
      
         if (get_current_time(&time_current) == ESP_OK) {
-            ESP_LOGI(TAG, "✅ Current time: %02d:%02d:%02d", time_current.hours, time_current.minutes, time_current.seconds);
+           // ESP_LOGI(TAG, "✅ Current time: %02d:%02d:%02d", time_current.hours, time_current.minutes, time_current.seconds);
         }
 
-        current_sensor_analyze_data(&is_5AM_now);
+        current_sensor_analyze_data(&is_6AM_now, &is_one_hour_elapsed);
+        // write_uart("hello world");
 
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        
+        read_data_from_IEC1107();
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
 
         }
+    }
 
-}
 
-
-esp_err_t establish_communication(){
-        // Inicjalizacja modułu komunikacji
-        esp_err_t ret = communication_init(&parse_mqtt_message);
-        if (ret == ESP_OK) {
-            // Łączenie z WiFi
-            bool wifi_connected = communication_connect_wifi();
-            if (wifi_connected) {
-               
-                bool mqtt_connected = communication_connect_mqtt();
-                if (mqtt_connected) {
-  
-                    // Krótka zwłoka na dokończenie transmisji
-                    vTaskDelay(pdMS_TO_TICKS(800));
-                    return ESP_OK;
-                }
-            }
-            else{
-                return ESP_FAIL;
-            }
-            //communication_cleanup();
-        }
-        else{
-            return ESP_FAIL;
-        }
-        return ESP_FAIL;
-}

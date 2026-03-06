@@ -4,13 +4,24 @@
 #include <stdbool.h>
 #include "esp_err.h"
 #include "config.h"  // Konfiguracja użytkownika
+#include "esp_http_server.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "lwip/err.h"
+#include "lwip/sys.h"
 
+
+typedef enum {
+    WIFI_IN_NORMAL_MODE,
+    WIFI_IN_AP_MODE,
+    WIFI_NOT_CONFIGURED
+} wifi_connection_mode_t;
+
+#define BOOT_BUTTON_GPIO 8
 
 typedef bool (* parse_mqtt_data_callback_t)(const char* topic, const char* data);
 
-
-
-bool current_sensor_analyze_data(bool (*is_time)(void));
+// bool current_sensor_analyze_data(bool (*is_time)(void));
 /**
  * @brief Inicjalizuje moduł komunikacji (WiFi)
  * @return ESP_OK jeśli sukces
@@ -65,6 +76,10 @@ void communication_cleanup(void);
 
 bool sync_time_from_ntp(void);
 
+esp_err_t establish_communication();
 
+esp_err_t  communication_create_wifi_ap();
+
+esp_err_t create_configuration_html_page();
 
 #endif // COMMUNICATION_H

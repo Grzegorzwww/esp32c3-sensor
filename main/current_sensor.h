@@ -38,4 +38,4 @@ bool parse_mqtt_message(const char* topic, const char* data);
 bool parse_data_from_meter(const uint8_t* data, int len, iec62056_data_t* out_data);
 bool read_data_from_IEC1107();
 bool create_and_publish_raport();
-bool current_sensor_analyze_data(bool (*is_time)(void));
+bool current_sensor_analyze_data(bool (*is_time)(void), bool (*is_one_hour_elapsed)(void));

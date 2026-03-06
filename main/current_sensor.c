@@ -1,6 +1,9 @@
+
+
 #include "current_sensor.h"
 #include "flash_manager.h"
 #include "communication.h"
+#include "time_control.h"
 
 static QueueHandle_t uart_queue;
 static uint32_t last_total_consumption = 0;
@@ -8,6 +11,7 @@ static uint32_t kwh_to_pln = 0;
 
 static iec62056_data_t meter_data = {0};
 
+#define LOG_LOCAL_LEVEL ESP_LOG_NONE
 
 void init_current_sensor()
 {
@@ -22,7 +26,7 @@ void init_current_sensor()
     last_total_consumption = 0;
     kwh_to_pln = 0;
     
-    ESP_LOGI("CURRENT_SENSOR", "✅ Current sensor initialized (ready for meter reading)");
+   // ESP_LOGI("CURRENT_SENSOR", "✅ Current sensor initialized (ready for meter reading)");
 }
 
 void init_uart()
@@ -32,10 +36,11 @@ void init_uart()
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_XTAL, // Stały zegar XTAL (40MHz) niezależny od DFS - baudrate nie zmienia się przy skalowaniu CPU
     };
     uart_param_config(UART_NUM_0, &uart_config);
-    uart_set_pin(UART_NUM_0, GPIO_NUM_1, GPIO_NUM_3, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_set_pin(UART_NUM_0, GPIO_NUM_21, GPIO_NUM_20, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE); // TX=21, RX=20
     uart_driver_install(UART_NUM_0, 1024 * 2, 0, 0, NULL, 0);
 
 }
@@ -95,10 +100,10 @@ bool parse_mqtt_message(const char* topic, const char* data)
 bool read_data_from_IEC1107()
 {
     // Sprawdź czy UART jest zainicjalizowany
-    if (uart_queue == NULL) {
-        ESP_LOGE("IEC62056", "❌ UART queue not initialized!");
-        return false;
-    }
+    // if (uart_queue == NULL) {
+    //     ESP_LOGE("IEC62056", "❌ UART queue not initialized!");
+    //     return false;
+    // }
     
     // 62056-21
     char serial_number[16] = {0};
@@ -108,6 +113,11 @@ bool read_data_from_IEC1107()
     int rx_len = 0;
 
     ESP_LOGI("IEC62056", "📡 Starting meter readout...");
+
+    // Wyczyść bufor PRZED wysłaniem żądania (usuwa śmieci z poprzedniej sesji)
+    uart_flush_input(UART_NUM_0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     write_uart(IEC_REQUEST_INIT);
 
     vTaskDelay(pdMS_TO_TICKS(500));  // Czekaj na odpowiedź
@@ -115,7 +125,7 @@ bool read_data_from_IEC1107()
     rx_len = uart_read_bytes(UART_NUM_0, rx_buffer, sizeof(rx_buffer) - 1, 
                         pdMS_TO_TICKS(2000));
 
-     if (rx_len <= 0) {
+    if (rx_len <= 0) {
         ESP_LOGE("IEC62056", "   No response from meter");
         return false;
     }
@@ -123,47 +133,50 @@ bool read_data_from_IEC1107()
     rx_buffer[rx_len] = '\0';
     ESP_LOGI("IEC62056", "   Received (%d bytes): %s", rx_len, rx_buffer);
 
-    if (rx_buffer[0] != '/') {
-        ESP_LOGE("IEC62056", "Invalid identification response");
+    // Szukaj '/' w odebranych danych (może być poprzedzone śmieciami)
+    uint8_t *ident_start = memchr(rx_buffer, '/', rx_len);
+    if (ident_start == NULL) {
+        ESP_LOGE("IEC62056", "   No '/' in identification response");
         return false;
     }
 
-
-   
-    sscanf((char*)rx_buffer, "/SAT6EM720%s", serial_number);
+    sscanf((char*)ident_start, "/SAT6EM720%15s", serial_number);
     ESP_LOGI("IEC62056", "   Device: EM720, Serial: %s", serial_number);
-
-    
 
     vTaskDelay(pdMS_TO_TICKS(300));
 
+    // Wyczyść bufor przed wysłaniem ACK
+    uart_flush_input(UART_NUM_0);
 
-    //  Wyślij ACK + prędkość transmisji
-
+    // Wyślij ACK + prędkość transmisji
     snprintf(ack_msg, sizeof(ack_msg), "%s%s\r\n", IEC_ACK, IEC_BAUD_19200);
     write_uart(ack_msg);
-    ESP_LOGI("IEC62056", "   Sent: ACK 0 6 0 (19200 Bd, no switching)");
-    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI("IEC62056", "   Sent: ACK 060 (no baud switching)");
 
-
-    uart_flush_input(UART_NUM_0);
+    // Czekaj na blok danych (STX...ETX)
+    vTaskDelay(pdMS_TO_TICKS(800));
 
     uint32_t x_len = uart_read_bytes(UART_NUM_0, rx_buffer, sizeof(rx_buffer) - 1,
                              pdMS_TO_TICKS(5000));
-   if (x_len > 0) {
-       ESP_LOGI("IEC62056", "   Received (%d bytes): %s", x_len, rx_buffer);
-   } else {
-       ESP_LOGE("IEC62056", "   No response from meter");
-   }
-
-   if (rx_buffer[0] != IEC_STX) {
-        ESP_LOGW("IEC62056", " Data doesn't start with STX");
+    if (x_len > 0) {
+        rx_buffer[x_len] = '\0';
+        ESP_LOGI("IEC62056", "   Received data (%d bytes)", x_len);
+    } else {
+        ESP_LOGE("IEC62056", "   No data block from meter");
+        return false;
     }
 
-    if(parse_data_from_meter(rx_buffer, rx_len, &meter_data)){
+    // Szukaj STX w danych (pomijamy ewentualne śmieci na początku)
+    uint8_t *stx_pos = memchr(rx_buffer, IEC_STX, x_len);
+    if (stx_pos == NULL) {
+        ESP_LOGW("IEC62056", "   No STX found, trying to parse anyway");
+        stx_pos = rx_buffer;
+    }
+
+    uint32_t data_len = x_len - (stx_pos - rx_buffer);
+    if (parse_data_from_meter(stx_pos, data_len, &meter_data)) {
         ESP_LOGI("IEC62056", "   Data parsed successfully");
         return true;
-
     } else {
         ESP_LOGE("IEC62056", "   Failed to parse data");
         return false;
@@ -258,13 +271,21 @@ bool create_and_publish_raport()
 }
 
 
-bool current_sensor_analyze_data(bool (*is_time)(void))
+bool current_sensor_analyze_data(bool (*is_time)(void), bool (*is_one_hour_elapsed)(void))
 {
-    if(is_time()){
+
+    bool ans = false;
+    if(is_time() && is_6AM_now()){
         create_and_publish_raport();
-        return true;
+        ans =  true;
     }
-    return false;
+
+    if(is_one_hour_elapsed()){
+        // create_and_publish_raport();
+        ans =  true;
+    }
+
+    return ans;
 }
 
 

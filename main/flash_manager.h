@@ -4,8 +4,7 @@
 
 #include <esp_err.h>
 #include <stddef.h>
-
-
+#include "esp_log.h"
 
 
 esp_err_t flash_manager_init(void);
