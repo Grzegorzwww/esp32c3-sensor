@@ -12,10 +12,11 @@
 #include "nvs.h"
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_sntp.h"
 
 
 
-#ifdef defined(PAULINA)
+#if defined(PAULINA)
     // 💝 Konfiguracja Pauliny
     #define WIFI_SSID "Dom"
     #define WIFI_PASS "paula1234"
@@ -70,13 +71,7 @@ static bool connection_info_sent = false;  // Flaga czy wysłano już info o po�
 // Funkcja do przeliczania RSSI na jakość w procentach
 static int rssi_to_quality_percent(int rssi)
 {
-    // RSSI w dBm -> jakość w %
-    // -30 dBm (doskonała) = 100%
-    // -50 dBm (bardzo dobra) = 80%
-    // -70 dBm (dobra) = 60%
-    // -80 dBm (średnia) = 40%
-    // -90 dBm (słaba) = 20%
-    // -100 dBm (bardzo słaba) = 0%
+
     
     if (rssi >= -30) return 100;
     if (rssi >= -50) return 80 + (rssi + 50) * 20 / 20;  // 80-100%
