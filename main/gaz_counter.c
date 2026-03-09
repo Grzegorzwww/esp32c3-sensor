@@ -34,9 +34,21 @@ bool control_wake_up_routine()
                 ESP_LOGI(TAG, "Impuls: %u (%.3f m³)",
              impulse_count, total_gas);
             }
-            wakeup_state_machine = INPUT_WAS_ACTIVE_WAKE_UP;
+            wakeup_state_machine = INPUT_WAS_ACTIVE_BUT_COUNTED_WAKE_UP;
             ans = true;
             return ans;
+        }else{
+            wakeup_state_machine = INPUT_WAS_DEACTIVE_WAKE_UP;
+            ans = false;
+        }
+        break;
+
+
+    case INPUT_WAS_ACTIVE_BUT_COUNTED_WAKE_UP:
+        if (check_input_is_active())
+        {
+            wakeup_state_machine = INPUT_WAS_ACTIVE_WAKE_UP;
+            ans = false;
         }else{
             wakeup_state_machine = INPUT_WAS_DEACTIVE_WAKE_UP;
             ans = false;

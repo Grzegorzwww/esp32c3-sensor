@@ -23,6 +23,7 @@
 
 typedef enum {
     INPUT_WAS_ACTIVE_WAKE_UP,
+    INPUT_WAS_ACTIVE_BUT_COUNTED_WAKE_UP,
     INPUT_WAS_DEACTIVE_WAKE_UP
 } wakeup_state_mechine_t;
 
