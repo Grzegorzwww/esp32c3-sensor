@@ -7,6 +7,7 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "nvs.h"
+
 // Konfiguracja licznika gazu
 #define GAS_GPIO_PIN GPIO_NUM_5    // GPIO dla kontaktronu
 #define GAS_IMPULSE_VOLUME 0.001f  // m³ na impuls  (cyferblat: 00000,001)
@@ -21,14 +22,12 @@
 #define LOG_INTERVAL_HOURS   24
 #define WAKEUPS_PER_LOG  ((LOG_INTERVAL_HOURS * 3600UL * 1000UL) / SLEEP_PERIOD_MS)
 
+// Maszyna stanów debouncing kontaktronu (przeżywa deep sleep)
 typedef enum {
-    INPUT_WAS_ACTIVE_WAKE_UP,
-    INPUT_WAS_ACTIVE_BUT_COUNTED_WAKE_UP,
-    INPUT_WAS_DEACTIVE_WAKE_UP
+    STATE_IDLE,              // Pin rozwarty — czekamy na impuls (GPIO wakeup)
+    STATE_FIRST_CONTACT,     // Pin zwarł — czekamy na potwierdzenie (debounce)
+    STATE_COUNTED,           // Impuls zliczony — czekamy aż pin się rozewrze
 } wakeup_state_mechine_t;
-
-// Konfiguracja licznika gazu
-#define GAS_GPIO_PIN GPIO_NUM_5 // GPIO5
 
 void go_to_cpu_sleep_for_ms( uint32_t ms);
 bool control_wake_up_routine();
@@ -39,6 +38,8 @@ bool check_input_is_active();
 void init_gaz_counter();
 bool check_wake_up_reason();
 float get_total_gas();
+uint32_t get_impulse_count();
+void set_total_gas(float value_m3);
 bool is_one_m3_completed();
 bool is_one_tenth_m3_completed();
 

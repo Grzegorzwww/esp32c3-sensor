@@ -13,6 +13,9 @@
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
+#include "esp_http_server.h"
+#include "gaz_counter.h"
+#include "mqtt_prefix.h"
 
 
 
@@ -568,4 +571,264 @@ bool sync_time_from_ntp(void) {
 
     // KROK 4: Zwróć true jeśli udało się pobrać czas
     return (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED);
+}
+
+// === PANEL KONFIGURACYJNY WiFi/MQTT ===
+
+// Forward declarations
+esp_err_t config_page_handler(httpd_req_t *req);
+esp_err_t save_wifi_handler(httpd_req_t *req);
+esp_err_t save_counter_handler(httpd_req_t *req);
+
+esp_err_t communication_create_wifi_ap()
+{
+    ESP_LOGI(TAG, "🔧 Creating WiFi Access Point for gas meter configuration");
+
+    // NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    // Inicjalizacja stosu sieciowego i event loop (jeśli jeszcze nie zainicjowane)
+    esp_netif_init();
+    esp_event_loop_create_default();
+
+    // Stwórz domyślny netif dla AP - to uruchamia DHCP server!
+    esp_netif_create_default_wifi_ap();
+
+    // Inicjalizacja WiFi
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    wifi_config_t ap_config = {
+        .ap = {
+            .ssid = "Licznik_Gazu",
+            .ssid_len = strlen("Licznik_Gazu"),
+            .password = "konfiguracja",
+            .channel = 1,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .ssid_hidden = 0,
+            .max_connection = 4,
+            .beacon_interval = 100,
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "✅ Access Point 'Licznik_Gazu' started");
+    ESP_LOGI(TAG, "🔑 Password: konfiguracja");
+    ESP_LOGI(TAG, "🌐 IP: 192.168.4.1");
+
+    // Uruchom serwer HTTP
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = 80;
+    config.max_uri_handlers = 8;
+
+    if (httpd_start(&server, &config) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "❌ Błąd uruchomienia HTTP servera");
+        return ESP_FAIL;
+    }
+
+    httpd_uri_t uri_root = {
+        .uri = "/", .method = HTTP_GET,
+        .handler = config_page_handler, .user_ctx = NULL
+    };
+    httpd_uri_t uri_save_wifi = {
+        .uri = "/save_wifi", .method = HTTP_POST,
+        .handler = save_wifi_handler, .user_ctx = NULL
+    };
+    httpd_uri_t uri_save_counter = {
+        .uri = "/save_counter", .method = HTTP_POST,
+        .handler = save_counter_handler, .user_ctx = NULL
+    };
+
+    httpd_register_uri_handler(server, &uri_root);
+    httpd_register_uri_handler(server, &uri_save_wifi);
+    httpd_register_uri_handler(server, &uri_save_counter);
+
+    ESP_LOGI(TAG, "🌐 HTTP server started - otwórz http://192.168.4.1 w przeglądarce");
+
+    return ESP_OK;
+}
+
+esp_err_t config_page_handler(httpd_req_t *req)
+{
+    char saved_ssid[65]     = {0};
+    char saved_password[65] = {0};
+    char saved_email[65]    = {0};
+    float current_gas = get_total_gas();
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open("wifi_config", NVS_READONLY, &nvs_handle) == ESP_OK) {
+        size_t len = 64;
+        if (nvs_get_str(nvs_handle, "ssid", saved_ssid, &len) == ESP_OK) {
+            saved_ssid[len] = '\0';
+        }
+        len = 64;
+        if (nvs_get_str(nvs_handle, "password", saved_password, &len) == ESP_OK) {
+            saved_password[len] = '\0';
+        }
+        len = 64;
+        if (nvs_get_str(nvs_handle, "mqtt_email", saved_email, &len) == ESP_OK) {
+            saved_email[len] = '\0';
+        }
+        nvs_close(nvs_handle);
+    }
+
+    char *page = malloc(3200);
+    if (!page) { httpd_resp_send_500(req); return ESP_FAIL; }
+
+    snprintf(page, 3200,
+        "<!DOCTYPE html>"
+        "<html><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+        "<title>Konfiguracja Licznika Gazu</title>"
+        "<style>"
+        "body{font-family:Arial;margin:0;background:#f0f0f0;}"
+        ".container{max-width:440px;margin:0 auto;padding:16px;}"
+        "h1{color:#1a73e8;text-align:center;font-size:20px;margin-bottom:4px;}"
+        ".subtitle{text-align:center;color:#666;font-size:13px;margin-bottom:16px;}"
+        ".card{background:white;padding:18px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.1);margin-bottom:14px;}"
+        ".card h2{font-size:15px;color:#444;margin:0 0 12px 0;padding-bottom:8px;border-bottom:2px solid #f0f0f0;}"
+        "label{display:block;font-size:13px;color:#555;margin-bottom:3px;}"
+        "input{width:100%%;padding:9px 10px;margin-bottom:10px;border:1px solid #ddd;border-radius:6px;"
+        "box-sizing:border-box;font-size:14px;}"
+        "input:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 2px rgba(26,115,232,0.15);}"
+        ".btn{width:100%%;padding:11px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold;}"
+        ".btn-blue{background:#1a73e8;color:white;}"
+        ".btn-orange{background:#fd7e14;color:white;}"
+        ".btn:hover{opacity:0.88;}"
+        ".info{background:#e8f0fe;padding:9px 11px;border-radius:6px;font-size:12px;color:#555;margin-bottom:10px;}"
+        ".current{background:#e7f5e7;padding:9px 11px;border-radius:6px;font-size:12px;color:#333;margin-bottom:10px;}"
+        "</style></head><body>"
+        "<div class='container'>"
+        "<h1>&#128293; Licznik Gazu</h1>"
+        "<div class='subtitle'>Panel konfiguracyjny &bull; 192.168.4.1</div>"
+
+        "<div class='card'>"
+        "<h2>&#128225; Konfiguracja WiFi i MQTT</h2>"
+        "<div class='info'>Podaj dane sieci WiFi oraz adres e-mail &mdash; b&#281;dzie g&#322;&oacute;wnym tematem MQTT.</div>"
+        "<form action='/save_wifi' method='POST'>"
+        "<label>Nazwa sieci WiFi (SSID)</label>"
+        "<input type='text' name='ssid' value='%s' required>"
+        "<label>Has&#322;o WiFi</label>"
+        "<input type='password' name='password' value='%s'>"
+        "<label>Adres e-mail (prefiks temat&oacute;w MQTT)</label>"
+        "<input type='email' name='email' value='%s' placeholder='jan.kowalski@gmail.com' required>"
+        "<p style='font-size:11px;color:#888;margin-top:-6px;'>Tematy MQTT: <strong>&lt;email&gt;/gas/total_m3</strong>, <strong>/daily_m3</strong> itd.</p>"
+        "<button type='submit' class='btn btn-blue'>&#128190; Zapisz i uruchom ponownie</button>"
+        "</form></div>"
+
+        "<div class='card'>"
+        "<h2>&#128202; Stan licznika</h2>"
+        "<div class='current'>Aktualny stan: <strong>%.3f m&sup3;</strong></div>"
+        "<div class='info'>Je&#347;li nowy licznik lub po wymianie &mdash; ustaw aktualny stan z fizycznego licznika.</div>"
+        "<form action='/save_counter' method='POST'>"
+        "<label>Nowy stan licznika (m&sup3;)</label>"
+        "<input type='number' step='0.001' name='gas_m3' value='%.3f' required>"
+        "<button type='submit' class='btn btn-orange'>&#9881; Ustaw stan licznika</button>"
+        "</form></div>"
+
+        "</div></body></html>",
+        saved_ssid, saved_password, saved_email,
+        current_gas, current_gas
+    );
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
+    free(page);
+    return ESP_OK;
+}
+
+esp_err_t save_wifi_handler(httpd_req_t *req)
+{
+    char content[512];
+    int received = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (received <= 0) { httpd_resp_send_500(req); return ESP_FAIL; }
+    content[received] = '\0';
+
+    char decoded_ssid[65]     = {0};
+    char decoded_password[65] = {0};
+    char decoded_email[65]    = {0};
+    httpd_query_key_value(content, "ssid",     decoded_ssid,     sizeof(decoded_ssid) - 1);
+    httpd_query_key_value(content, "password", decoded_password, sizeof(decoded_password) - 1);
+    httpd_query_key_value(content, "email",    decoded_email,    sizeof(decoded_email) - 1);
+    
+    // Pewność że są null-terminated
+    decoded_ssid[64] = '\0';
+    decoded_password[64] = '\0';
+    decoded_email[64] = '\0';
+
+    ESP_LOGI(TAG, "📝 Zapisuję WiFi: SSID='%s' (len:%zu), email='%s' (len:%zu)", 
+             decoded_ssid, strlen(decoded_ssid), decoded_email, strlen(decoded_email));
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open("wifi_config", NVS_READWRITE, &nvs_handle) == ESP_OK)
+    {
+        nvs_set_str(nvs_handle, "ssid",       decoded_ssid);
+        nvs_set_str(nvs_handle, "password",   decoded_password);
+        nvs_set_str(nvs_handle, "mqtt_email", decoded_email);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+        ESP_LOGI(TAG, "✅ Konfiguracja zapisana");
+    }
+
+    char resp[768];
+    snprintf(resp, sizeof(resp),
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+        "<body style='font-family:Arial;text-align:center;padding:30px'>"
+        "<h2 style='color:#1a73e8'>&#9989; Zapisano!</h2>"
+        "<p>Urz&#261;dzenie uruchomi si&#281; ponownie za 3 sekundy...</p>"
+        "<p style='color:#555;font-size:13px'>Tematy MQTT:<br>"
+        "<strong>%s/gas/total_m3</strong><br>"
+        "<strong>%s/gas/daily_m3</strong><br>"
+        "<strong>%s/gas/pulse_count</strong> itd.</p>"
+        "</body></html>",
+        decoded_email, decoded_email, decoded_email);
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    esp_restart();
+    return ESP_OK;
+}
+
+esp_err_t save_counter_handler(httpd_req_t *req)
+{
+    char content[256];
+    int received = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (received <= 0) { httpd_resp_send_500(req); return ESP_FAIL; }
+    content[received] = '\0';
+
+    char gas_str[32] = {0};
+    httpd_query_key_value(content, "gas_m3", gas_str, sizeof(gas_str));
+
+    float gas_value = atof(gas_str);
+    
+    ESP_LOGI(TAG, "⛽ Ustawiam stan licznika gazu: %.3f m³", gas_value);
+    
+    // TODO: Dodaj funkcję do gaz_counter.c żeby ustawić stan licznika
+    set_total_gas(gas_value);
+
+    char resp[512];
+    snprintf(resp, sizeof(resp),
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+        "<body style='font-family:Arial;text-align:center;padding:30px'>"
+        "<h2 style='color:#28a745'>✅ Stan licznika zapisany!</h2>"
+        "<p>Nowy stan: <strong>%.3f m&sup3;</strong></p>"
+        "<a href='/'>← Wróć do panelu</a>"
+        "</body></html>", gas_value);
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
 }

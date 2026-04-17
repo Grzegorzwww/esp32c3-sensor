@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 #include "esp_err.h"
-#include "config.h"  // Konfiguracja użytkownika
+#include "mqtt_prefix.h"  // Potrzebne dla makr w config.h
+#include "config.h"       // Konfiguracja użytkownika
 
 
 
@@ -50,6 +51,12 @@ void communication_reset_connection_info_flag(void);
  * @brief Czyści zasoby komunikacji
  */
 void communication_cleanup(void);
+
+/**
+ * @brief Tworzy WiFi Access Point dla konfiguracji
+ * @return ESP_OK jeśli sukces
+ */
+esp_err_t communication_create_wifi_ap(void);
 
 
 bool sync_time_from_ntp(void);
