@@ -8,6 +8,8 @@
 #include "driver/gpio.h"
 #include "nvs.h"
 
+#include <time.h>
+
 // Konfiguracja licznika gazu
 #define GAS_GPIO_PIN GPIO_NUM_5    // GPIO dla kontaktronu
 #define GAS_IMPULSE_VOLUME 0.001f  // m³ na impuls  (cyferblat: 00000,001)
@@ -18,7 +20,7 @@
 
 #define DELAY_AFTER_WAKEUP_MS 2000  // Opóźnienie po wybudzeniu (ms)
 #define INPUT_PIN_STUCK_TIME_S 10
-#define SLEEP_PERIOD_MS 500
+#define SLEEP_PERIOD_MS 1500
 #define LOG_INTERVAL_HOURS   24
 #define WAKEUPS_PER_LOG  ((LOG_INTERVAL_HOURS * 3600UL * 1000UL) / SLEEP_PERIOD_MS)
 
@@ -30,6 +32,8 @@ typedef enum {
 } wakeup_state_mechine_t;
 
 void go_to_cpu_sleep_for_ms( uint32_t ms);
+void go_to_cpu_sleep();
+void go_to_sleep_smart(void);  // Inteligentny sen — tryb zależny od stanu maszyny, nigdy nie wraca
 bool control_wake_up_routine();
 
 void go_to_cpu_sleep();
@@ -38,6 +42,8 @@ bool check_input_is_active();
 void init_gaz_counter();
 bool check_wake_up_reason();
 float get_total_gas();
+float get_daily_gas();
+void  update_daily_base(void);
 uint32_t get_impulse_count();
 void set_total_gas(float value_m3);
 bool is_one_m3_completed();

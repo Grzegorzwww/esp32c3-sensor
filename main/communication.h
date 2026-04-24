@@ -61,6 +61,11 @@ esp_err_t communication_create_wifi_ap(void);
 
 bool sync_time_from_ntp(void);
 
+void communication_check_and_handle_config_button(void);
+
+void publish_timestamp();
+
+void publish_wifi_quality();
 
 
 #endif // COMMUNICATION_H

@@ -34,7 +34,7 @@
 #define MQTT_TOPIC_GAS_GET_STATUS         mqtt_topic(MQTT_SUBTOPIC_GAS_GET_STATUS)
 
 // Pin przycisku konfiguracji (taki sam jak w temp_wody)
-#define BOOT_BUTTON_GPIO GPIO_NUM_6  // D7 na XIAO ESP32-C3
+#define BOOT_BUTTON_GPIO 8  // D8 na XIAO ESP32-C3
 
 
 // #define PAULINA

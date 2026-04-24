@@ -2,22 +2,17 @@
 
 static const char *TAG = "GAZ_COUNTER";
 
-// impulse_count ładowany z NVS po każdym wybudzeniu — nie musi być w RTC
+
 static uint32_t impulse_count = 0;
 static float    total_gas     = 0.0f;
 
-// Zmienne w RTC RAM — przeżywają deep sleep
+
 static RTC_DATA_ATTR bool input_stuck = false;  // Flaga permanentnego zwarcia
-
-// KLUCZOWE: stan maszyny musi przeżyć deep sleep!
 static RTC_DATA_ATTR wakeup_state_mechine_t wakeup_state_machine = STATE_IDLE;
+static RTC_DATA_ATTR uint32_t daily_start_impulse = 0;
+static RTC_DATA_ATTR uint16_t last_known_yday     = 0; // dzień roku (1-365)
 
-// ============================================================
-//  Maszyna stanów — debouncing kontaktronu przez deep sleep
-// ============================================================
-//
-//  Schemat:
-//
+
 //   STATE_IDLE
 //     Pin rozwarty, śpimy w GPIO wakeup.
 //     Wybudzenie przez GPIO (pin LOW) → STATE_FIRST_CONTACT, sleep timer 500ms
@@ -31,8 +26,13 @@ static RTC_DATA_ATTR wakeup_state_mechine_t wakeup_state_machine = STATE_IDLE;
 //     Impuls zliczony, czekamy aż pin się rozewrze.
 //     Pin wciąż zwarty → stuck? (check: czy minęło > INPUT_PIN_STUCK_TIME_S) → STATE_IDLE
 //     Pin rozwarty → STATE_IDLE, sleep GPIO wakeup
-//
-// ============================================================
+
+
+
+bool is_input_stuck(void)   { return input_stuck; }
+
+void set_input_stuck(bool s) { input_stuck = s; }
+
 
 bool control_wake_up_routine()
 {
@@ -44,11 +44,11 @@ bool control_wake_up_routine()
     case STATE_IDLE:
         // Wybudzeni przez GPIO (pin LOW) — pierwszy kontakt
         if (check_input_is_active()) {
-            ESP_LOGI(TAG, "🔍 Stan: IDLE→FIRST_CONTACT (pin zwarty, debounce 500ms)");
+            ESP_LOGI(TAG, "Stan: IDLE→FIRST_CONTACT (pin zwarty, debounce 500ms)");
             wakeup_state_machine = STATE_FIRST_CONTACT;
         } else {
             // Wybudzenie z innego powodu (reset?) — zostajemy w IDLE
-            ESP_LOGI(TAG, "ℹ️  Stan: IDLE — pin rozwarty, powrót do GPIO wakeup");
+            ESP_LOGI(TAG, "Stan: IDLE — pin rozwarty, powrót do GPIO wakeup");
         }
         break;
 
@@ -72,7 +72,7 @@ bool control_wake_up_routine()
             wakeup_state_machine = STATE_COUNTED;
         } else {
             // Szum / fałszywy impuls — ignorujemy
-            ESP_LOGW(TAG, "⚠️  Stan: FIRST_CONTACT — pin rozwarty, fałszywy impuls, ignoruję");
+            ESP_LOGW(TAG, " Stan: FIRST_CONTACT — pin rozwarty, fałszywy impuls, ignoruję");
             wakeup_state_machine = STATE_IDLE;
         }
         break;
@@ -83,13 +83,13 @@ bool control_wake_up_routine()
         if (check_input_is_active()) {
             // Pin wciąż zwarty — może stuck
             if (input_stuck) {
-                ESP_LOGW(TAG, "🔒 Stan: COUNTED — pin NADAL zwarty (stuck)");
+                ESP_LOGW(TAG, "Stan: COUNTED — pin NADAL zwarty (stuck)");
             } else {
-                ESP_LOGI(TAG, "⏳ Stan: COUNTED — pin wciąż zwarty, czekam...");
+                ESP_LOGI(TAG, "Stan: COUNTED — pin wciąż zwarty, czekam...");
             }
         } else {
             // Pin się rozwarł — gotowi na następny impuls
-            ESP_LOGI(TAG, "✅ Stan: COUNTED→IDLE (pin rozwarty)");
+            ESP_LOGI(TAG, "Stan: COUNTED→IDLE (pin rozwarty)");
             input_stuck = false;
             wakeup_state_machine = STATE_IDLE;
         }
@@ -119,7 +119,15 @@ void init_gaz_counter()
     load_gas_from_nvs();
     total_gas = impulse_count * GAS_IMPULSE_VOLUME;
 
-    ESP_LOGI(TAG, "📊 Stan: %lu impulsów (%.3f m³) | maszyna: %d",
+    // Jeśli nigdy nie było synchronizacji NTP (last_known_yday==0),
+    // ustaw bazę dzienną na aktualny stan — żeby daily nie równało się total
+    if (last_known_yday == 0) {
+        daily_start_impulse = impulse_count;
+        ESP_LOGI(TAG, "⏰ Brak synchronizacji NTP — baza dzienna = %lu (dzienny=0)", 
+                 (unsigned long)impulse_count);
+    }
+
+    ESP_LOGI(TAG, "Stan: %lu impulsów (%.3f m³) | maszyna: %d",
              (unsigned long)impulse_count, total_gas, wakeup_state_machine);
 }
 
@@ -147,6 +155,43 @@ void set_total_gas(float value_m3)
              total_gas, (unsigned long)impulse_count);
 }
 
+float get_daily_gas()
+{
+    if (impulse_count < daily_start_impulse) {
+        // NVS zostało zresetowane lub przepełnienie — zabezpieczenie
+        daily_start_impulse = impulse_count;
+    }
+    return (impulse_count - daily_start_impulse) * GAS_IMPULSE_VOLUME;
+}
+
+// Wywołaj raz po synchronizacji NTP — rejestruje bazę dzienną
+// Jeśli dzień się zmienił → resetuje licznik dzienny
+void update_daily_base(void)
+{
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    if (t == NULL) {
+        ESP_LOGW("GAZ_COUNTER", "⚠️  localtime() zwróciło NULL — czas nie ustawiony!");
+        return;
+    }
+
+    char time_str[32];
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", t);
+    ESP_LOGI("GAZ_COUNTER", "🕐 Aktualny czas: %s (dzień roku: %d)", time_str, t->tm_yday + 1);
+
+    uint16_t yday = (uint16_t)(t->tm_yday + 1); // 1-365
+
+    if (yday != last_known_yday) {
+        ESP_LOGI("GAZ_COUNTER", "📅 Nowy dzień (%d→%d) — resetuję licznik dzienny (baza=%lu)",
+                 last_known_yday, yday, (unsigned long)impulse_count);
+        daily_start_impulse = impulse_count;
+        last_known_yday     = yday;
+    } else {
+        ESP_LOGI("GAZ_COUNTER", "✅ Ten sam dzień (%d) — dzienny=%.3f m³, baza=%lu",
+                 yday, get_daily_gas(), (unsigned long)daily_start_impulse);
+    }
+}
+
 bool is_one_m3_completed()
 {
     return (impulse_count > 0 && impulse_count % IMPULSES_PER_M3 == 0);
@@ -154,51 +199,19 @@ bool is_one_m3_completed()
 
 bool is_one_tenth_m3_completed()
 {
-    return (impulse_count > 0 && impulse_count % IMPULSES_PER_TENTH_M3 == 0);
+    return (impulse_count > 0 &&( impulse_count % IMPULSES_PER_TENTH_M3 == 0)) ;
 }
 
-// ============================================================
-//  Zarządzanie deep sleep
-// ============================================================
-
-void go_to_cpu_sleep()
-{
-    // Jeśli pin jest zwarty → może być stuck — śpij na timer
-    if (check_input_is_active()) {
-        ESP_LOGW(TAG, "⚠️  Pin zwarty przed snem — tryb timer %ds (stuck guard)",
-                 INPUT_PIN_STUCK_TIME_S);
-        input_stuck = true;
-        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
-        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(
-            (uint64_t)INPUT_PIN_STUCK_TIME_S * 1000000ULL));
-    } else {
-        // Normalny tryb — wybudzenie przez GPIO (pin LOW)
-        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-        uint64_t mask = (1ULL << GAS_GPIO_PIN);
-        ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW));
-        ESP_LOGI(TAG, "💤 Deep sleep — GPIO%d wakeup (czekam na impuls)",
-                 (int)GAS_GPIO_PIN);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-    esp_deep_sleep_start();
-}
 
 void go_to_cpu_sleep_for_ms(uint32_t ms)
 {
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
     ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup((uint64_t)ms * 1000ULL));
-    ESP_LOGI(TAG, "💤 Deep sleep — timer %u ms (debounce)", ms);
+    ESP_LOGI(TAG, "Deep sleep — timer %u ms (debounce)", ms);
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_deep_sleep_start();
 }
 
-bool is_input_stuck(void)   { return input_stuck; }
-void set_input_stuck(bool s) { input_stuck = s; }
 
-// ============================================================
-//  NVS
-// ============================================================
 
 void save_gas_to_nvs()
 {
