@@ -418,22 +418,36 @@ static bool wifi_connect(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(78));
-
-    ESP_ERROR_CHECK(esp_wifi_connect());
     esp_wifi_set_ps(WIFI_PS_NONE);
 
-    ESP_LOGI(TAG, "⏳ Czekam na połączenie (timeout: %d ms)...", WIFI_TIMEOUT_MS);
-    int bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                                   pdFALSE, pdTRUE, WIFI_TIMEOUT_MS / portTICK_PERIOD_MS);
-    bool connected = (bits & WIFI_CONNECTED_BIT) != 0;
+    // Kilka prób połączenia — przydatne przy słabym zasięgu
+    const int MAX_RETRIES = 3;
+    const int RETRY_TIMEOUT_MS = 15000;
+    bool connected = false;
 
-    if (connected)
-    {
-        ESP_LOGI(TAG, "🎉 WiFi połączone!");
+    for (int attempt = 1; attempt <= MAX_RETRIES && !connected; attempt++) {
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        ESP_LOGI(TAG, "🔄 Próba %d/%d — łączę z '%s' (timeout: %ds)...",
+                 attempt, MAX_RETRIES, ssid, RETRY_TIMEOUT_MS / 1000);
+
+        esp_wifi_connect();
+
+        int bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
+                                       pdFALSE, pdTRUE, RETRY_TIMEOUT_MS / portTICK_PERIOD_MS);
+        connected = (bits & WIFI_CONNECTED_BIT) != 0;
+
+        if (connected) {
+            ESP_LOGI(TAG, "🎉 WiFi połączone! (próba %d/%d)", attempt, MAX_RETRIES);
+        } else {
+            ESP_LOGW(TAG, "⚠️  Timeout próby %d/%d po %d ms", attempt, MAX_RETRIES, RETRY_TIMEOUT_MS);
+            if (attempt < MAX_RETRIES) {
+                vTaskDelay(pdMS_TO_TICKS(1000)); // chwila przerwy przed kolejną próbą
+            }
+        }
     }
-    else
-    {
-        ESP_LOGE(TAG, "❌ Timeout połączenia WiFi po %d ms", WIFI_TIMEOUT_MS);
+
+    if (!connected) {
+        ESP_LOGE(TAG, "❌ Nie udało się połączyć po %d próbach", MAX_RETRIES);
     }
 
     return connected;

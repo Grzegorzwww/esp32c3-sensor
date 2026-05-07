@@ -10,8 +10,10 @@
 
 #include <time.h>
 
+#include "a3144.h"
+
 // Konfiguracja licznika gazu
-#define GAS_GPIO_PIN GPIO_NUM_5    // GPIO dla kontaktronu
+#define GAS_GPIO_PIN A3144_DEFAULT_GPIO  // GPIO dla czujnika Halla A3144 (GPIO20 = D7)
 #define GAS_IMPULSE_VOLUME 0.001f  // m³ na impuls  (cyferblat: 00000,001)
 #define IMPULSES_PER_M3 1000       // Impulsów na 1 m³
 #define IMPULSES_PER_TENTH_M3 100  // Impulsów na 0.1 m³ → wysyłka MQTT co 00000,100

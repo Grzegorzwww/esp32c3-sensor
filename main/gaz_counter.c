@@ -7,10 +7,11 @@ static uint32_t impulse_count = 0;
 static float    total_gas     = 0.0f;
 
 
-static RTC_DATA_ATTR bool input_stuck = false;  // Flaga permanentnego zwarcia
+static RTC_DATA_ATTR bool input_stuck = false;
 static RTC_DATA_ATTR wakeup_state_mechine_t wakeup_state_machine = STATE_IDLE;
 static RTC_DATA_ATTR uint32_t daily_start_impulse = 0;
-static RTC_DATA_ATTR uint16_t last_known_yday     = 0; // dzień roku (1-365)
+static RTC_DATA_ATTR uint16_t last_known_yday     = 0;
+static RTC_DATA_ATTR bool     daily_base_set      = false; // czy baza dzienna była już ustawiona
 
 
 //   STATE_IDLE
@@ -106,24 +107,18 @@ bool control_wake_up_routine()
 
 void init_gaz_counter()
 {
-    ESP_LOGI(TAG, "🔧 Init GPIO%u (kontaktron gazu)", (unsigned)GAS_GPIO_PIN);
-    gpio_config_t config = {
-        .pin_bit_mask  = (1ULL << GAS_GPIO_PIN),
-        .mode          = GPIO_MODE_INPUT,
-        .pull_up_en    = GPIO_PULLUP_ENABLE,
-        .pull_down_en  = GPIO_PULLDOWN_DISABLE,
-        .intr_type     = GPIO_INTR_DISABLE
-    };
-    gpio_config(&config);
+    ESP_LOGI(TAG, "🔧 Init A3144 na GPIO%u", (unsigned)GAS_GPIO_PIN);
+    a3144_init(GAS_GPIO_PIN);
 
     load_gas_from_nvs();
     total_gas = impulse_count * GAS_IMPULSE_VOLUME;
 
-    // Jeśli nigdy nie było synchronizacji NTP (last_known_yday==0),
-    // ustaw bazę dzienną na aktualny stan — żeby daily nie równało się total
-    if (last_known_yday == 0) {
+    // Ustaw bazę dzienną tylko raz po restarcie (RTC RAM reset)
+    // Nie resetuj przy każdym wybudzeniu — przeżywa deep sleep!
+    if (!daily_base_set) {
         daily_start_impulse = impulse_count;
-        ESP_LOGI(TAG, "⏰ Brak synchronizacji NTP — baza dzienna = %lu (dzienny=0)", 
+        daily_base_set = true;
+        ESP_LOGI(TAG, "⏰ Pierwsza inicjalizacja — baza dzienna = %lu (dzienny=0)", 
                  (unsigned long)impulse_count);
     }
 
@@ -133,7 +128,7 @@ void init_gaz_counter()
 
 bool check_input_is_active()
 {
-    return (gpio_get_level(GAS_GPIO_PIN) == 0); // LOW = zwarty
+    return a3144_is_magnet_detected(GAS_GPIO_PIN);
 }
 
 float get_total_gas()
@@ -199,7 +194,8 @@ bool is_one_m3_completed()
 
 bool is_one_tenth_m3_completed()
 {
-    return (impulse_count > 0 &&( impulse_count % IMPULSES_PER_TENTH_M3 == 0)) ;
+    // return (impulse_count > 0 &&( impulse_count % IMPULSES_PER_TENTH_M3 == 0)) ;
+    return (impulse_count > 0 &&( impulse_count % 1 == 0)) ;
 }
 
 
