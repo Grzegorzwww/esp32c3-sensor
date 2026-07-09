@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <time.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -8,103 +9,71 @@
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
-#include "mqtt_prefix.h" // Musi być przed config.h — używa mqtt_topic()
-#include "config.h"      // Konfiguracja użytkownika
-#include "communication.h"
-#include "battery_monitor.h"
+#include "config.h"     
 #include "nvs.h"
-#include "gaz_counter.h"
-#include "a3144.h"
+#include "ap_webserver.h"
+#include "espnow_bridge.h"
 
 // Tag dla logów
 static const char *TAG = "MAIN";
 
-void establish_communication();
+#define ESPNOW_PEER_MAC_STR ""  // np. "24:6F:28:AA:BB:CC"; pusty = tylko odbior komend
 
-void app_main(void)
+static bool parse_mac_str(const char *mac_str, uint8_t out[6])
 {
+    if (!mac_str || strlen(mac_str) < 17) {
+        return false;
+    }
+    unsigned int b[6];
+    if (sscanf(mac_str, "%02x:%02x:%02x:%02x:%02x:%02x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) {
+        return false;
+    }
+    for (int i = 0; i < 6; i++) {
+        out[i] = (uint8_t)b[i];
+    }
+    return true;
+}
 
+// Wyjścia sterowane z panelu WWW (dopasuj piny do swojej płytki)
+// active_low = true: typowe tanie moduły przekaźnikowe są aktywne stanem niskim
+// (LOW = przekaźnik załączony, HIGH = wyłączony). Dzięki temu domyślny/startowy
+// stan pinu (wyłączony = HIGH) nie załącza przekaźnika przy uruchomieniu ESP.
+// Jeśli Twój moduł przekaźnikowy jest aktywny stanem wysokim, ustaw false.
+static const ap_webserver_gpio_t s_outputs[] = {
+    { .pin = GPIO_NUM_20, .name = "Brama", .mode = AP_WEBSERVER_GPIO_GATE, .active_low = true },
+};
+
+int main(void)
+{
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    mqtt_prefix_load_from_nvs();
+    ap_webserver_config_t ap_cfg = {
+        .ap_ssid = "access",
+        .ap_password = "22446688",              // "" = sie otwarta, lub podaj haslo WiFi (min. 8 znakow)
+        .ap_channel = 1,
+        .ap_max_conn = 4,
+        .ap_tx_power_dbm = 12,           // nizsza moc nadawania = mniejszy pobor pradu (0 = domyslna ~20dBm)
+        .ap_beacon_interval_ms = 1000,    // rzadsze beacony = mniejszy pobor pradu (0 = domyslne 100ms)
+        .login_password = "Bobik111",   // 8-znakowe haslo logowania do panelu WWW
+        .gpios = s_outputs,
+        .gpio_count = sizeof(s_outputs) / sizeof(s_outputs[0]),
+        .limit_switch_pin = GPIO_NUM_10,      // krancowka: pin -> GND, drugi koniec pinu ma pull-up
+        .limit_switch_name = "Krancowka bramy",
+    };
 
-    init_gaz_counter();  // inicjalizuje też A3144
-    a3144_led_init(A3144_LED_GPIO);
-    battery_monitor_init();
+    ESP_ERROR_CHECK(ap_webserver_start(&ap_cfg));
 
-    // vTaskDelay(pdMS_TO_TICKS(500)); // Czekaj na USB CDC — bez tego pierwsze logi giną
+    espnow_bridge_config_t espnow_cfg = {
+        .channel = ap_cfg.ap_channel,
+        .has_peer = false,
+        .peer_mac = {0},
+        .status_interval_ms = 5000,
+    };
+    espnow_cfg.has_peer = parse_mac_str(ESPNOW_PEER_MAC_STR, espnow_cfg.peer_mac);
+    ESP_ERROR_CHECK(espnow_bridge_start(&espnow_cfg));
 
-    ESP_LOGI(TAG, "START | Impulsów: %lu | Gaz: %.3f m³",
-              (unsigned long)get_impulse_count(), get_total_gas());
+    ESP_LOGI(TAG, "Polacz sie z siecia WiFi \"%s\" i wejdz na http://192.168.4.1/", ap_cfg.ap_ssid);
 
-
-
-    communication_check_and_handle_config_button();
-
-    if (control_wake_up_routine()) {
-        if (is_one_tenth_m3_completed()) {
-            establish_communication();
-        }
-    }
-    go_to_cpu_sleep_for_ms(SLEEP_PERIOD_MS);
-
-    // while (1) {
-    //     vTaskDelay(pdMS_TO_TICKS(200));
-    //     bool magnet = a3144_is_magnet_detected(A3144_DEFAULT_GPIO);
-    //     if (magnet) {
-    //         ESP_LOGI(TAG, "🧲 MAGNET DETECTED (GPIO%d = LOW)", A3144_DEFAULT_GPIO);
-    //     }
-    // }
-
+    return 0;
 }
 
-void establish_communication()
-{
-    esp_err_t ret = communication_init();
-    if (ret == ESP_OK)
-    {
-        bool wifi_connected = communication_connect_wifi();
-        if (wifi_connected)
-        {
-            // Synchronizuj czas NTP i zaktualizuj bazę dzienną
-            if (sync_time_from_ntp()) {
-                update_daily_base();
-                ESP_LOGI(TAG, "NTP zsynchronizowany, dzienny=%0.3f m³", get_daily_gas());
-            }
-
-            bool mqtt_connected = communication_connect_mqtt();
-            if (mqtt_connected)
-            {
-                char data[32];
-
-                // Łączna wartość licznika
-                snprintf(data, sizeof(data), "%.3f", get_total_gas());
-                communication_publish_data(mqtt_topic(MQTT_SUBTOPIC_GAS_TOTAL_M3), data);
-                ESP_LOGI(TAG, "MQTT total: %s = %s m³", mqtt_topic(MQTT_SUBTOPIC_GAS_TOTAL_M3), data);
-
-                // Dzienne zużycie
-                snprintf(data, sizeof(data), "%.3f", get_daily_gas());
-                communication_publish_data(mqtt_topic(MQTT_SUBTOPIC_GAS_DAILY_M3), data);
-                ESP_LOGI(TAG, "MQTT daily: %s = %s m³", mqtt_topic(MQTT_SUBTOPIC_GAS_DAILY_M3), data);
-
-                // Bateria
-                battery_data_t bat;
-                if (battery_monitor_read(&bat) == ESP_OK && bat.valid) {
-                    snprintf(data, sizeof(data), "%.2f", bat.voltage);
-                    communication_publish_data(mqtt_topic("battery/voltage"), data);
-                    snprintf(data, sizeof(data), "%d", bat.percentage);
-                    communication_publish_data(mqtt_topic("battery/percent"), data);
-                    ESP_LOGI(TAG, "MQTT battery: %.2fV (%d%%)", bat.voltage, bat.percentage);
-                }
-
-            
-                 publish_timestamp();
-
-                 publish_wifi_quality();
-
-                vTaskDelay(pdMS_TO_TICKS(500));
-            }
-        }
-        communication_cleanup();
-    }
-}

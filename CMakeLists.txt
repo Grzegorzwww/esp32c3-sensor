@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Set the target before including ESP-IDF
-set(SUPPORTED_TARGETS esp32c3)
+set(SUPPORTED_TARGETS esp32c6)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(xiao_esp32c3_template)
+project(xiao_esp32c6_gas_counter)

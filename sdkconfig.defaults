@@ -1,4 +1,4 @@
-# ESP32-C3 Configuration
+# ESP32-C6 Configuration
 
 # Component config
 CONFIG_FREERTOS_HZ=1000
@@ -15,13 +15,6 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_COLORS=y
 
-# FreeRTOS
-CONFIG_FREERTOS_UNICORE=y
+# FreeRTOS — C6 jest dual-core, nie ustawiamy UNICORE
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
-
-# Wi-Fi (disabled by default for basic template)
-# CONFIG_ESP32C3_WIFI_ENABLED=n
-
-# Bluetooth (disabled by default for basic template) 
-# CONFIG_BT_ENABLED=n
